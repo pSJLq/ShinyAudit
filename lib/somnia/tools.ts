@@ -25,6 +25,7 @@ import { EXPLORER_API } from "./chains";
 // tunnel and set BASE_URL to that tunnel host.
 const BASE_URL = (process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 const IDENTITY_AGG = (address: string) => `${BASE_URL}/api/identity/${address}`;
+const SNAPSHOT_AGG = (address: string) => `${BASE_URL}/api/snapshot/${address}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
@@ -1312,41 +1313,34 @@ export const TOOLS: ToolSpec[] = [
     build: ({ address }) => ({ kind: "fetchString", url: INTERNAL_FIRST(String(address), 1), selector: "result.0.from" })
   },
 
-  // ── Composite tools — one planner slot, multiple sub-dispatches ──
-  // The planner has a HARD cap of 4 tool_calls per round. Composites let
-  // the planner request a labelled bundle (e.g. "give me everything about
-  // this contract") that fans out to 4 underlying on-chain calls but only
-  // costs one slot. Cost in STT stays the same — this is purely a
-  // round-budget multiplier so the planner can diversify within one round.
+  // ── Smart-aggregator on-chain tools ──
+  // Each tool = ONE on-chain Somnia json-fetch dispatch. The URL points to
+  // OUR public /api/snapshot/[addr] route which pre-aggregates 8 Blockscout
+  // queries server-side and returns a compact <500-char `summary` field
+  // the validators can consensus on quickly. Real receipt on agent platform,
+  // real STT spent, real on-chain agentic flow — just with a smart data
+  // provider that pre-digests the upstream so consensus payload is small.
+  // contract_snapshot / wallet_snapshot are now thin aliases over this.
   {
     name: "contract_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "contract",
-    description: "BUNDLE: contract_name + compiler + is_proxy + first 1500 chars of source — one slot, 4 facts.",
+    description: "One on-chain dispatch returning a compact summary: name | compiler | is_proxy | creator | balance | total_txs | source_bytes. Receipt on Somnia.",
     args: { address: "0x..." },
-    build: ({ address }) => ({
-      kind: "composite",
-      steps: [
-        { label: "name",      sub: { kind: "fetchString", url: V2_SMART_CONTRACT(String(address)), selector: "name" } },
-        { label: "compiler",  sub: { kind: "fetchString", url: V2_SMART_CONTRACT(String(address)), selector: "compiler_version" } },
-        { label: "is_proxy",  sub: { kind: "fetchString", url: V2_ADDRESS(String(address)),         selector: "is_contract" } },
-        { label: "source",    sub: { kind: "fetchString", url: V2_SMART_CONTRACT(String(address)), selector: "source_code" } }
-      ]
-    })
+    build: ({ address }) => ({ kind: "fetchString", url: SNAPSHOT_AGG(String(address)), selector: "summary" })
   },
   {
     name: "wallet_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "account",
-    description: "BUNDLE: balance + total_txs + is_contract + public_name — one slot, 4 facts about a wallet.",
+    description: "One on-chain dispatch: balance | total_txs | is_contract | ens | public_name. Same receipt model as above.",
     args: { address: "0x..." },
-    build: ({ address }) => ({
-      kind: "composite",
-      steps: [
-        { label: "balance",     sub: { kind: "fetchString", url: V2_ADDRESS(String(address)),          selector: "coin_balance" } },
-        { label: "total_txs",   sub: { kind: "fetchString", url: V2_ADDRESS_COUNTERS(String(address)), selector: "transactions_count" } },
-        { label: "is_contract", sub: { kind: "fetchString", url: V2_ADDRESS(String(address)),          selector: "is_contract" } },
-        { label: "public_name", sub: { kind: "fetchString", url: V2_ADDRESS(String(address)),          selector: "public_tags.0.display_name" } }
-      ]
-    })
+    build: ({ address }) => ({ kind: "fetchString", url: SNAPSHOT_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "identity_summary",
+    agent: "json-fetch", fn: "fetchString", category: "identity",
+    description: "One on-chain dispatch returning every web-3 handle: 'Shiny11111 (opensea); vitalik.eth (ens); …'. Receipt on Somnia.",
+    args: { address: "0x..." },
+    build: ({ address }) => ({ kind: "fetchString", url: IDENTITY_AGG(String(address)), selector: "summary" })
   },
   {
     name: "tx_snapshot",

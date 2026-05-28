@@ -107,11 +107,36 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ addr: stri
   const balanceWei = address?.coin_balance ? BigInt(address.coin_balance) : 0n;
   const balanceSTT = Number(balanceWei) / 1e18;
 
+  // Compact joined summary — what an on-chain json-fetch tool retrieves in
+  // ONE dispatch with selector="summary". <500 chars so validator consensus
+  // converges fast. This is the agentic-speed sweet spot: smart server-side
+  // data provider + small on-chain payload.
+  const summaryParts: string[] = [];
+  summaryParts.push(`is_contract=${address?.is_contract ?? false}`);
+  if (Number.isFinite(balanceSTT)) summaryParts.push(`balance=${balanceSTT.toFixed(4)}STT`);
+  if (counters?.transactions_count) summaryParts.push(`total_txs=${counters.transactions_count}`);
+  if (address?.ens_domain_name) summaryParts.push(`ens=${address.ens_domain_name}`);
+  if (address?.name || address?.public_tags?.[0]?.display_name) {
+    summaryParts.push(`public_name=${address.name || address.public_tags?.[0]?.display_name}`);
+  }
+  if (address?.creator_address_hash) summaryParts.push(`creator=${address.creator_address_hash}`);
+  if (address?.implementation_address || contract?.implementation_address) {
+    summaryParts.push(`impl=${address?.implementation_address || contract?.implementation_address}`);
+  }
+  if (contract?.name) summaryParts.push(`name=${contract.name}`);
+  if (contract?.compiler_version) summaryParts.push(`compiler=${contract.compiler_version}`);
+  if (contract?.language) summaryParts.push(`lang=${contract.language}`);
+  if (contract?.is_verified !== undefined) summaryParts.push(`verified=${contract.is_verified}`);
+  if (sourceFull) summaryParts.push(`source_bytes=${sourceFull.length}`);
+  if (token?.name) summaryParts.push(`token=${token.name}/${token.symbol || "?"}`);
+  const summary = summaryParts.join(" | ");
+
   return Response.json(
     {
       ok: true,
       address: addr,
       elapsed_ms: Date.now() - t,
+      summary,
       address_info: {
         is_contract: address?.is_contract ?? false,
         is_verified_contract: contract?.is_verified ?? false,

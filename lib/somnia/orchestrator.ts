@@ -971,7 +971,7 @@ function alreadyIdentityProbed(history: Array<{ role: string; content: string }>
 function findIdentityHits(history: Array<{ role: string; content: string }>): Array<{ addr: string; handle: string; source: string }> {
   const hits: Array<{ addr: string; handle: string; source: string }> = [];
   const identityTools = [
-    "identity_local",   // server-side local fetch — the deterministic path
+    "identity_summary", // on-chain single-dispatch aggregator — primary path
     "identity_best", "identity_opensea_handle", "identity_ens_resolved",
     "identity_farcaster_handle", "identity_lens_handle", "identity_mirror_handle",
     "identity_galxe_handle", "address_ens_domain", "address_public_name",
@@ -980,17 +980,28 @@ function findIdentityHits(history: Array<{ role: string; content: string }>): Ar
   for (const h of history) {
     if (h.role !== "tool") continue;
     for (const tool of identityTools) {
-      // Match: tool address_first_tx_funder(address=0xABC…) → value
+      // Match: tool <tool>(address=0xABC…) → value
       const re = new RegExp(`tool\\s+${tool}\\(([^)]+)\\)\\s+→\\s+(.+?)(?:\\s+\\(cached\\))?$`, "m");
       const m = h.content.match(re);
       if (!m) continue;
       const value = m[2].trim();
-      // Skip empty / null / failed
-      if (!value || value === "(failed)" || value === "null" || value === "(empty)" || value === '""' || value === "''") continue;
+      // Skip empty / null / failed / "none on 7 sources"
+      if (!value || value === "(failed)" || value === "null" || value === "(empty)" ||
+          value === '""' || value === "''" || value.startsWith("none on")) continue;
       // Extract address from args
       const addrMatch = m[1].match(/0x[a-fA-F0-9]{40}/);
       const addr = addrMatch ? addrMatch[0] : "unknown";
-      hits.push({ addr, handle: value, source: tool });
+      // identity_summary returns "handle1 (source1); handle2 (source2); ..."
+      // Split it so each source becomes its own hit.
+      if (tool === "identity_summary" && value.includes("(") && value.includes(")")) {
+        for (const segment of value.split(";")) {
+          const s = segment.trim();
+          const sm = s.match(/^(.+?)\s+\(([^)]+)\)\s*$/);
+          if (sm) hits.push({ addr, handle: sm[1].trim(), source: sm[2].trim() });
+        }
+      } else {
+        hits.push({ addr, handle: value, source: tool });
+      }
     }
   }
   return hits;
@@ -1153,50 +1164,37 @@ export async function* runAgentLoop(
     void label; void t; void summary;
   }
 
-  // Helper: local snapshot probe → push synthetic tool history entry.
-  async function runLocalSnapshot(stepId: string, addr: string): Promise<string | null> {
-    const summary = await probeSnapshotLocal(addr);
-    const value = summary || "(snapshot unavailable)";
-    history.push({ role: "tool", key: stepId, content: `tool snapshot_local(address=${addr}) → ${value}` });
-    collected[stepId] = value;
-    return summary;
-  }
-
-  // ─── PRE-FLIGHT for ANY 0x target (not just identity questions) ──
-  // Server-side composite snapshot + identity probe. Both 0 STT, ~3 sec.
-  // Planner sees a rich picture before round 1, often produces the answer
-  // in one round without spending STT on redundant on-chain dispatches.
+  // ─── PRE-FLIGHT — on-chain Somnia dispatches, real receipts ──
+  // For any 0x target, automatically dispatch two on-chain tools BEFORE the
+  // planner runs: contract_snapshot (one fetchString on /api/snapshot, small
+  // <500-char summary → fast consensus) + identity_summary (same shape on
+  // /api/identity). Both produce real Somnia agent receipts. Planner starts
+  // round 1 with full target context, saving rounds.
   if (/^0x[a-fA-F0-9]{40}$/.test(target)) {
-    yield { type: "log", stepId: "preflight", line: `pre-flight: local snapshot + identity (server-side, 0 STT)` };
+    yield { type: "log", stepId: "preflight", line: `pre-flight: on-chain snapshot + identity (Somnia agents, receipts on agent platform)` };
     yield {
       type: "plan",
       steps: [
-        { id: "preflight.snapshot_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local snapshot (${target.slice(0, 10)}…)`, costEstimateSTT: 0 },
-        { id: "preflight.identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local identity probe (${target.slice(0, 10)}…)`, costEstimateSTT: 0 }
+        { id: "preflight.snapshot",  slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `contract_snapshot(${target.slice(0, 10)}…)`,  costEstimateSTT: ESTIMATE("json-fetch") },
+        { id: "preflight.identity",  slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `identity_summary(${target.slice(0, 10)}…)`,   costEstimateSTT: ESTIMATE("json-fetch") }
       ]
     };
-    yield { type: "started", stepId: "preflight.snapshot_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
-    const snap = await runLocalSnapshot("preflight.snapshot_local", target);
-    yield { type: "result", stepId: "preflight.snapshot_local", output: snap ? snap.slice(0, 400) : "snapshot unavailable" };
+    const snap = yield* runRailTool("preflight.snapshot", "contract_snapshot", { address: target });
+    cumulativeCostSTT += ESTIMATE("json-fetch");
+    yield* runRailTool("preflight.identity", "identity_summary", { address: target });
+    cumulativeCostSTT += ESTIMATE("json-fetch");
 
-    yield { type: "started", stepId: "preflight.identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
-    await runLocalIdentity("preflight.identity_local", target, "target");
-    const hitsTarget = findIdentityHits(history);
-    yield { type: "result", stepId: "preflight.identity_local", output: hitsTarget.length ? `found: ${hitsTarget.map(h => h.handle).join(", ")}` : "no handle on 7 sources" };
-
-    // Extract creator from snapshot summary string (no extra on-chain call needed)
+    // Parse creator from on-chain snapshot return value (string "name=X | creator=0xABC | …")
     const creatorMatch = snap?.match(/creator=(0x[a-fA-F0-9]{40})/);
     const creator = creatorMatch?.[1];
-    if (identityQ && creator && /^0x[a-fA-F0-9]{40}$/.test(creator)) {
-      yield { type: "log", stepId: "preflight", line: `creator ${creator.slice(0, 10)}… → local identity probe` };
+    if (identityQ && creator && /^0x[a-fA-F0-9]{40}$/.test(creator) && cumulativeCostSTT < HARD_BUDGET_STT) {
+      yield { type: "log", stepId: "preflight", line: `creator ${creator.slice(0, 10)}… surfaced — on-chain identity probe on creator` };
       yield {
         type: "plan",
-        steps: [{ id: "preflight.creator_identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local identity probe (creator)`, costEstimateSTT: 0 }]
+        steps: [{ id: "preflight.creator_identity", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `identity_summary(creator)`, costEstimateSTT: ESTIMATE("json-fetch") }]
       };
-      yield { type: "started", stepId: "preflight.creator_identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
-      await runLocalIdentity("preflight.creator_identity_local", creator, "creator");
-      const hitsAll = findIdentityHits(history);
-      yield { type: "result", stepId: "preflight.creator_identity_local", output: hitsAll.length ? `total identity hits: ${hitsAll.map(h => `${h.addr.slice(0,8)}…=${h.handle}`).join(" | ")}` : "no handle on 7 sources" };
+      yield* runRailTool("preflight.creator_identity", "identity_summary", { address: creator });
+      cumulativeCostSTT += ESTIMATE("json-fetch");
     }
   }
 
@@ -1318,32 +1316,11 @@ export async function* runAgentLoop(
         continue;
       }
 
-      // ─── INTERCEPT composite *_snapshot tools → run server-side ──
-      // contract_snapshot / wallet_snapshot / token_snapshot via on-chain
-      // composite is the 30-min path (each sub-step waits validator consensus,
-      // and `source` returns huge body that consensus barely converges on).
-      // Local route returns same data shape in ~1 sec, 0 STT.
-      const addrArg = typeof tc.args.address === "string" ? tc.args.address : undefined;
-      if (tc.name === "contract_snapshot" || tc.name === "wallet_snapshot" || tc.name === "token_snapshot") {
-        if (addrArg && /^0x[a-fA-F0-9]{40}$/.test(addrArg)) {
-          yield { type: "started", stepId: tId, slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
-          yield { type: "log", stepId: tId, line: `${tc.name} → server-side fetch (0 STT, ~1s)` };
-          const summary = await runLocalSnapshot(tId, addrArg);
-          yield { type: "result", stepId: tId, output: summary ? summary.slice(0, 500) : "snapshot unavailable" };
-          toolCache.set(key, summary || "(snapshot unavailable)");
-          continue;
-        }
-      }
-      // identity_best / identity_* — route to local probe too (no on-chain).
-      if (tc.name === "identity_best" && addrArg && /^0x[a-fA-F0-9]{40}$/.test(addrArg)) {
-        yield { type: "started", stepId: tId, slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
-        yield { type: "log", stepId: tId, line: `identity_best → server-side probe (0 STT)` };
-        await runLocalIdentity(tId, addrArg, "planner-asked");
-        const hit = findIdentityHits(history).find((h) => h.addr.toLowerCase() === addrArg.toLowerCase());
-        yield { type: "result", stepId: tId, output: hit ? `${hit.handle} (${hit.source})` : "no handle" };
-        toolCache.set(key, hit?.handle || "(empty)");
-        continue;
-      }
+      // No server-side shortcuts here: every tool call goes through the
+      // on-chain Somnia agent (real receipt, real STT). The smart data
+      // providers at /api/snapshot and /api/identity make on-chain consensus
+      // fast by pre-digesting upstream into <500-char summary fields, but
+      // the dispatch itself is unconditionally on-chain.
       let built: BuiltTool;
       try {
         built = spec.build(tc.args);
@@ -1365,30 +1342,27 @@ export async function* runAgentLoop(
 
     // ─── AUTO-INJECT identity probes on newly surfaced addresses ──
     // After each round, scan tool results for any 0x address we haven't
-    // identity-probed yet. LOCAL fetch — 0 STT cost, instant. Capped at 3
-    // per round to keep UI traffic reasonable. The deterministic rail that
-    // ensures Shiny11111-style hits never get missed.
-    if (identityQ) {
+    // identity-probed yet. ON-CHAIN dispatch via identity_summary tool —
+    // real receipt on Somnia agent platform, real STT (~0.18 per probe),
+    // small consensus payload because /api/identity returns a <300-char
+    // summary string. Capped at 2 per round to control spend.
+    if (identityQ && cumulativeCostSTT < HARD_BUDGET_STT) {
       const candidates = surfacedAddresses(history)
-        .filter((a) => a !== target.toLowerCase())              // target was pre-flighted
-        .filter((a) => !alreadyLocalProbed(history, a))         // skip already-probed
-        .filter((a) => !alreadyIdentityProbed(history, a))      // skip if planner did it
-        .slice(0, 3); // cap per round
+        .filter((a) => a !== target.toLowerCase())          // target was pre-flighted
+        .filter((a) => !alreadyIdentityProbed(history, a))
+        .slice(0, 2);
       if (candidates.length > 0) {
         const railSteps: PublicAgentStep[] = candidates.map((a, i) => ({
           id: `rail.${round}.${i}`,
           slug: AGENT_SLUG.JSON_FETCH,
           fnName: "fetchString",
-          description: `local identity probe (${a.slice(0, 10)}…)`,
-          costEstimateSTT: 0
+          description: `identity_summary(${a.slice(0, 10)}…) [on-chain]`,
+          costEstimateSTT: ESTIMATE("json-fetch")
         }));
         yield { type: "plan", steps: railSteps };
         for (let i = 0; i < candidates.length; i++) {
-          const stepId = `rail.${round}.${i}`;
-          yield { type: "started", stepId, slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
-          await runLocalIdentity(stepId, candidates[i], "surfaced-addr");
-          const hit = findIdentityHits(history).find((h) => h.addr.toLowerCase() === candidates[i].toLowerCase());
-          yield { type: "result", stepId, output: hit ? `→ ${hit.handle} (${hit.source})` : "no handle on 7 sources" };
+          yield* runRailTool(`rail.${round}.${i}`, "identity_summary", { address: candidates[i] });
+          cumulativeCostSTT += ESTIMATE("json-fetch");
         }
       }
     }

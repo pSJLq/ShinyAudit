@@ -207,11 +207,21 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ addr: stri
     results.galxe         ||
     null;
 
+  // Compact summary — for on-chain fetchString with selector="summary".
+  // Single small string the Somnia validator consensus converges on fast.
+  // "Shiny11111 (opensea); vitalik.eth (ensideas)" or "none on 7 sources".
+  const hitParts: string[] = [];
+  for (const [src, val] of Object.entries(results)) {
+    if (val) hitParts.push(`${val} (${src})`);
+  }
+  const summary = hitParts.length ? hitParts.join("; ") : "none on 7 sources";
+
   return json({
     ok: true,
     address: addr,
     hits,
     best,
+    summary,
     results,
     probes: probes.map((p) => ({ source: p.source, ms: p.ms, ok: p.value != null, detail: p.detail }))
   });
