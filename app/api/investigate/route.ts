@@ -4,7 +4,7 @@ import { runInvestigation, type StreamEvent } from "@/lib/somnia/orchestrator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 900; // up to 15 min — agent finalization can be slow
+export const maxDuration = 300; // Vercel Hobby plan cap (15 min only on Pro+)
 
 const Body = z.object({
   prompt: z.string().min(3).max(2000),
