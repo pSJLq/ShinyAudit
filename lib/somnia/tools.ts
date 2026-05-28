@@ -26,6 +26,8 @@ import { EXPLORER_API } from "./chains";
 const BASE_URL = (process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 const IDENTITY_AGG = (address: string) => `${BASE_URL}/api/identity/${address}`;
 const SNAPSHOT_AGG = (address: string) => `${BASE_URL}/api/snapshot/${address}`;
+const SNAPSHOT_TX  = (hash: string)    => `${BASE_URL}/api/snapshot/tx/${hash}`;
+const SNAPSHOT_TOKEN = (address: string) => `${BASE_URL}/api/snapshot/token/${address}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
@@ -1345,33 +1347,21 @@ export const TOOLS: ToolSpec[] = [
   {
     name: "tx_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "tx",
-    description: "BUNDLE: counterparty + value + method + timestamp for one tx — one slot, 4 facts.",
+    description: "One on-chain dispatch — full tx summary: from | to | value | method | status | block | gas. Receipt on Somnia.",
     args: { hash: "0x... (32-byte tx hash)" },
-    build: ({ hash }) => ({
-      kind: "composite",
-      steps: [
-        { label: "to",        sub: { kind: "fetchString", url: TXINFO(String(hash)), selector: "result.to" } },
-        { label: "value",     sub: { kind: "fetchString", url: TXINFO(String(hash)), selector: "result.value" } },
-        { label: "method_id", sub: { kind: "fetchString", url: TXINFO(String(hash)), selector: "result.input" } },
-        { label: "timestamp", sub: { kind: "fetchString", url: TXINFO(String(hash)), selector: "result.timeStamp" } }
-      ]
-    })
+    build: ({ hash }) => ({ kind: "fetchString", url: SNAPSHOT_TX(String(hash)), selector: "summary" })
   },
   {
     name: "token_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "token",
-    description: "BUNDLE: token name + symbol + supply + decimals — one slot, ERC20 baseline in one shot.",
+    description: "One on-chain dispatch — full ERC20/721 summary: name | symbol | supply | decimals | holders | top_holder. Receipt on Somnia.",
     args: { address: "0x... (token contract)" },
-    build: ({ address }) => ({
-      kind: "composite",
-      steps: [
-        { label: "name",     sub: { kind: "fetchString", url: V2_TOKEN(String(address)), selector: "name" } },
-        { label: "symbol",   sub: { kind: "fetchString", url: V2_TOKEN(String(address)), selector: "symbol" } },
-        { label: "supply",   sub: { kind: "fetchString", url: V2_TOKEN(String(address)), selector: "total_supply" } },
-        { label: "decimals", sub: { kind: "fetchString", url: V2_TOKEN(String(address)), selector: "decimals" } }
-      ]
-    })
-  }
+    build: ({ address }) => ({ kind: "fetchString", url: SNAPSHOT_TOKEN(String(address)), selector: "summary" })
+  },
+  // No composite tools remain — every tool is a SINGLE on-chain Somnia
+  // dispatch, returning a small `summary` string from our smart endpoints.
+  // The composite kind type stays defined in BuiltTool for backward-compat
+  // reading by orchestrator code, but isn't generated anywhere now.
 ];
 
 export const TOOL_BY_NAME = Object.fromEntries(TOOLS.map((t) => [t.name, t]));

@@ -39,6 +39,7 @@ import {
   PLATFORM_ABI,
   encodeExtractString,
   encodeInferString,
+  encodeInferToolsChat,
   encodeJsonFetchString,
   encodeJsonFetchUint,
   getAgentAbi,
@@ -725,7 +726,7 @@ export async function* runInvestigation(
     // poll for finalization
     let fin: { status: ResponseStatus; finalizedBlock: bigint };
     try {
-      fin = await waitForFinalization(requestId, receipt.blockNumber, 900);
+      fin = await waitForFinalization(requestId, receipt.blockNumber, 180);
     } catch (err) {
       yield { type: "error", stepId: step.id, message: (err as Error).message };
       yield { type: "done" };
@@ -1473,6 +1474,87 @@ async function* runTool(
   return undefined;
 }
 
+/**
+ * NATIVE Somnia agentic mode — single inferToolsChat dispatch where the
+ * Somnia LLM agent self-directs an entire investigation. The validator
+ * subcommittee runs an internal tool-call loop:
+ *   1. LLM reads user question
+ *   2. picks a tool from our MCP catalogue (via mcpServerUrls)
+ *   3. validator fetches the MCP tool via json-fetch agent
+ *   4. result comes back, LLM reasons, picks next tool
+ *   5. iterates up to maxIterations, finishes
+ *
+ * ONE on-chain dispatch, ONE receipt for the entire investigation. The
+ * purest expression of Somnia's agentic L1 capability. Used in /api/investigate-native.
+ */
+export async function* runNativeAgentic(
+  prompt: string,
+  target: string,
+  user: `0x${string}`,
+  maxIterations = 5
+): AsyncGenerator<StreamEvent> {
+  const stepId = "native";
+  const base = (process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+  const mcpUrl = `${base}/api/mcp`;
+
+  yield { type: "quote", agents: 0, service: 0, total: ESTIMATE("llm-inference") * 2 };
+  yield {
+    type: "plan",
+    steps: [{
+      id: stepId,
+      slug: AGENT_SLUG.LLM_INFERENCE,
+      fnName: "inferToolsChat",
+      description: `native Somnia agent · MCP @ ${mcpUrl} · maxIterations=${maxIterations}`,
+      costEstimateSTT: ESTIMATE("llm-inference") * 2
+    }]
+  };
+
+  const systemMsg = [
+    "You are {s}hinyAudit — an on-chain investigator on Somnia testnet (chain id 50312).",
+    `Target: ${target}.`,
+    "Reply in the user's language. Use the MCP tools available to gather facts on-chain.",
+    "Every tool call you make is itself an on-chain Somnia agent invocation with a receipt.",
+    "Prefer *_snapshot and identity_summary tools — they return rich summaries in one call.",
+    "When you have a confident answer, return concise markdown with the verdict, key facts, and addresses you cited.",
+    "NEVER invent values. Only cite literals from tool results."
+  ].join("\n");
+
+  const payload = encodeInferToolsChat({
+    roles: ["system", "user"],
+    messages: [systemMsg, prompt],
+    mcpServerUrls: [mcpUrl],
+    onchainTools: [],
+    maxIterations,
+    chainOfThought: true
+  });
+
+  const result = yield* dispatchPayload(stepId, AGENT_SLUG.LLM_INFERENCE, "inferToolsChat", payload, user);
+  if (!result) {
+    yield { type: "error", stepId, message: "native inferToolsChat returned no output" };
+    yield { type: "done" };
+    return;
+  }
+  // inferToolsChat returns a tuple — first element is finishReason, second is response.
+  // Our decoder JSON.stringify-ed it; parse to extract the user-facing text.
+  let answer = result;
+  try {
+    const parsed = JSON.parse(result);
+    if (Array.isArray(parsed) && typeof parsed[1] === "string") answer = parsed[1];
+    else if (parsed?.response) answer = String(parsed.response);
+  } catch {
+    /* if not JSON, use raw string */
+  }
+
+  yield {
+    type: "dossier",
+    markdown: answer,
+    flagged: [],
+    citations: [],
+    cost: "~0.36 STT (native single-dispatch)"
+  };
+  yield { type: "done" };
+}
+
 /** Shared on-chain dispatch path used by both runLLM and runScout. */
 async function* dispatchPayload(
   stepId: string,
@@ -1633,7 +1715,7 @@ async function* dispatchPayload(
 
   let fin: { status: ResponseStatus; finalizedBlock: bigint };
   try {
-    fin = await waitForFinalization(requestId, receipt.blockNumber, 600);
+    fin = await waitForFinalization(requestId, receipt.blockNumber, 180);
   } catch (err) {
     yield { type: "error", stepId, message: (err as Error).message };
     return undefined;

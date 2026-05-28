@@ -10,6 +10,18 @@
       "maxDuration": 60,
       "memory": 512
     },
+    "app/api/snapshot/[addr]/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/snapshot/tx/[hash]/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/snapshot/token/[addr]/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/investigate-native/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/dryrun/route.ts": {
       "maxDuration": 60
     },

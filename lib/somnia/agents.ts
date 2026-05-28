@@ -116,6 +116,36 @@ export function encodeInferNumber(args: InferNumberArgs): Hex {
   ]);
 }
 
+/**
+ * Native Somnia inferToolsChat — the LLM agent runs its OWN tool-call loop
+ * inside Somnia's validator subcommittee. ONE on-chain dispatch produces
+ * a full multi-step investigation: planner+execute+reason+finalise.
+ * mcpServerUrls makes the validators fetch tool catalogues from your MCP
+ * endpoint and dispatch sub-tools against on-chain agents (json-fetch etc).
+ *
+ * This is the purest agentic-on-chain pattern Somnia offers. Use when you
+ * trust the LLM to self-direct; orchestrator-managed loop remains for
+ * structured multi-step flows where you want client-side control.
+ */
+export interface InferToolsChatArgs {
+  roles: string[];        // e.g. ["system", "user"]
+  messages: string[];     // parallel to roles
+  mcpServerUrls?: string[];
+  onchainTools?: Array<{ signature: string; description: string }>;
+  maxIterations?: number;
+  chainOfThought?: boolean;
+}
+export function encodeInferToolsChat(args: InferToolsChatArgs): Hex {
+  return encodeAgentCall(AGENT_SLUG.LLM_INFERENCE, "inferToolsChat", [
+    args.roles,
+    args.messages,
+    args.mcpServerUrls ?? [],
+    (args.onchainTools ?? []).map((t) => [t.signature, t.description]),
+    BigInt(args.maxIterations ?? 5),
+    args.chainOfThought ?? true
+  ]);
+}
+
 // llm-parse-website
 export interface ExtractStringArgs {
   key: string;
