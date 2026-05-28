@@ -996,6 +996,10 @@ function findIdentityHits(history: Array<{ role: string; content: string }>): Ar
   return hits;
 }
 
+function baseUrl(): string {
+  return (process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+}
+
 /**
  * SERVER-SIDE identity probe — direct fetch to our /api/identity aggregator.
  * Bypasses the on-chain agent path entirely: 0 STT, ~2s response, 100 %
@@ -1006,14 +1010,51 @@ function findIdentityHits(history: Array<{ role: string; content: string }>): Ar
  * map so we can surface multi-platform hits in the synth.
  */
 async function probeIdentityLocal(address: string): Promise<{ best: string | null; results: Record<string, string | null> }> {
-  const base = (process.env.BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
   try {
-    const r = await fetch(`${base}/api/identity/${address}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+    const r = await fetch(`${baseUrl()}/api/identity/${address}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (!r.ok) return { best: null, results: {} };
     const j = (await r.json()) as { best?: string | null; results?: Record<string, string | null> };
     return { best: j.best ?? null, results: j.results ?? {} };
   } catch {
     return { best: null, results: {} };
+  }
+}
+
+/**
+ * SERVER-SIDE composite snapshot — replaces the on-chain `*_snapshot` tools
+ * that were doing 4 sequential dispatches (source step alone could take 30+
+ * min because Solidity body is huge). Returns flattened summary string the
+ * planner & synth can read straight away.
+ */
+async function probeSnapshotLocal(address: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${baseUrl()}/api/snapshot/${address}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      address_info?: { is_contract?: boolean; ens?: string | null; public_name?: string | null; balance_stt?: number | null; creator?: string | null; implementation?: string | null; proxy_type?: string | null };
+      counters?: { transactions?: string | null };
+      contract?: { name?: string | null; compiler?: string | null; language?: string | null; is_proxy?: boolean; source_size?: number; source_preview?: string | null } | null;
+      token?: { name?: string; symbol?: string; total_supply?: string; decimals?: string } | null;
+    };
+    const parts: string[] = [];
+    const a = j.address_info || {};
+    parts.push(`is_contract=${a.is_contract}`);
+    if (a.balance_stt != null) parts.push(`balance=${a.balance_stt} STT`);
+    if (j.counters?.transactions) parts.push(`total_txs=${j.counters.transactions}`);
+    if (a.ens) parts.push(`ens=${a.ens}`);
+    if (a.public_name) parts.push(`public_name=${a.public_name}`);
+    if (a.creator) parts.push(`creator=${a.creator}`);
+    if (a.implementation) parts.push(`implementation=${a.implementation}`);
+    if (j.contract?.name) parts.push(`name=${j.contract.name}`);
+    if (j.contract?.compiler) parts.push(`compiler=${j.contract.compiler}`);
+    if (j.contract?.language) parts.push(`language=${j.contract.language}`);
+    if (j.contract?.is_proxy != null) parts.push(`is_proxy=${j.contract.is_proxy}`);
+    if (j.contract?.source_size) parts.push(`source_bytes=${j.contract.source_size}`);
+    if (j.token?.name) parts.push(`token=${j.token.name}/${j.token.symbol}`);
+    if (j.contract?.source_preview) parts.push(`source_head=${j.contract.source_preview.slice(0, 400).replace(/\n/g, " ")}`);
+    return parts.join(" | ");
+  } catch {
+    return null;
   }
 }
 
@@ -1112,27 +1153,42 @@ export async function* runAgentLoop(
     void label; void t; void summary;
   }
 
-  if (identityQ && /^0x[a-fA-F0-9]{40}$/.test(target)) {
-    yield { type: "log", stepId: "preflight", line: `identity question → pre-flight LOCAL identity probe on ${target.slice(0, 10)}…  (server-side, 0 STT)` };
+  // Helper: local snapshot probe → push synthetic tool history entry.
+  async function runLocalSnapshot(stepId: string, addr: string): Promise<string | null> {
+    const summary = await probeSnapshotLocal(addr);
+    const value = summary || "(snapshot unavailable)";
+    history.push({ role: "tool", key: stepId, content: `tool snapshot_local(address=${addr}) → ${value}` });
+    collected[stepId] = value;
+    return summary;
+  }
+
+  // ─── PRE-FLIGHT for ANY 0x target (not just identity questions) ──
+  // Server-side composite snapshot + identity probe. Both 0 STT, ~3 sec.
+  // Planner sees a rich picture before round 1, often produces the answer
+  // in one round without spending STT on redundant on-chain dispatches.
+  if (/^0x[a-fA-F0-9]{40}$/.test(target)) {
+    yield { type: "log", stepId: "preflight", line: `pre-flight: local snapshot + identity (server-side, 0 STT)` };
     yield {
       type: "plan",
-      steps: [{ id: "preflight.identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local identity probe (${target.slice(0, 10)}…)`, costEstimateSTT: 0 }]
+      steps: [
+        { id: "preflight.snapshot_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local snapshot (${target.slice(0, 10)}…)`, costEstimateSTT: 0 },
+        { id: "preflight.identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local identity probe (${target.slice(0, 10)}…)`, costEstimateSTT: 0 }
+      ]
     };
+    yield { type: "started", stepId: "preflight.snapshot_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
+    const snap = await runLocalSnapshot("preflight.snapshot_local", target);
+    yield { type: "result", stepId: "preflight.snapshot_local", output: snap ? snap.slice(0, 400) : "snapshot unavailable" };
+
     yield { type: "started", stepId: "preflight.identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
     await runLocalIdentity("preflight.identity_local", target, "target");
     const hitsTarget = findIdentityHits(history);
     yield { type: "result", stepId: "preflight.identity_local", output: hitsTarget.length ? `found: ${hitsTarget.map(h => h.handle).join(", ")}` : "no handle on 7 sources" };
 
-    // address_creator IS still on-chain (Blockscout data, validators reach it fine)
-    yield {
-      type: "plan",
-      steps: [{ id: "preflight.creator", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `pre-flight address_creator(${target.slice(0, 10)}…)`, costEstimateSTT: ESTIMATE("json-fetch") }]
-    };
-    const creator = yield* runRailTool("preflight.creator", "address_creator", { address: target });
-    cumulativeCostSTT += ESTIMATE("json-fetch");
-
-    if (creator && /^0x[a-fA-F0-9]{40}$/.test(creator)) {
-      yield { type: "log", stepId: "preflight", line: `creator surfaced — local identity probe on ${creator.slice(0, 10)}…` };
+    // Extract creator from snapshot summary string (no extra on-chain call needed)
+    const creatorMatch = snap?.match(/creator=(0x[a-fA-F0-9]{40})/);
+    const creator = creatorMatch?.[1];
+    if (identityQ && creator && /^0x[a-fA-F0-9]{40}$/.test(creator)) {
+      yield { type: "log", stepId: "preflight", line: `creator ${creator.slice(0, 10)}… → local identity probe` };
       yield {
         type: "plan",
         steps: [{ id: "preflight.creator_identity_local", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `local identity probe (creator)`, costEstimateSTT: 0 }]
@@ -1259,6 +1315,33 @@ export async function* runAgentLoop(
         yield { type: "result", stepId: tId, output: cached.slice(0, 500) };
         history.push({ role: "tool", key: tId, content: `tool ${tc.name}(${formatToolArgs(tc.args)}) → ${cached} (cached)` });
         collected[tId] = cached;
+        continue;
+      }
+
+      // ─── INTERCEPT composite *_snapshot tools → run server-side ──
+      // contract_snapshot / wallet_snapshot / token_snapshot via on-chain
+      // composite is the 30-min path (each sub-step waits validator consensus,
+      // and `source` returns huge body that consensus barely converges on).
+      // Local route returns same data shape in ~1 sec, 0 STT.
+      const addrArg = typeof tc.args.address === "string" ? tc.args.address : undefined;
+      if (tc.name === "contract_snapshot" || tc.name === "wallet_snapshot" || tc.name === "token_snapshot") {
+        if (addrArg && /^0x[a-fA-F0-9]{40}$/.test(addrArg)) {
+          yield { type: "started", stepId: tId, slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
+          yield { type: "log", stepId: tId, line: `${tc.name} → server-side fetch (0 STT, ~1s)` };
+          const summary = await runLocalSnapshot(tId, addrArg);
+          yield { type: "result", stepId: tId, output: summary ? summary.slice(0, 500) : "snapshot unavailable" };
+          toolCache.set(key, summary || "(snapshot unavailable)");
+          continue;
+        }
+      }
+      // identity_best / identity_* — route to local probe too (no on-chain).
+      if (tc.name === "identity_best" && addrArg && /^0x[a-fA-F0-9]{40}$/.test(addrArg)) {
+        yield { type: "started", stepId: tId, slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString" };
+        yield { type: "log", stepId: tId, line: `identity_best → server-side probe (0 STT)` };
+        await runLocalIdentity(tId, addrArg, "planner-asked");
+        const hit = findIdentityHits(history).find((h) => h.addr.toLowerCase() === addrArg.toLowerCase());
+        yield { type: "result", stepId: tId, output: hit ? `${hit.handle} (${hit.source})` : "no handle" };
+        toolCache.set(key, hit?.handle || "(empty)");
         continue;
       }
       let built: BuiltTool;
