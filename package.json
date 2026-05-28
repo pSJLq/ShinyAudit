@@ -1,0 +1,37 @@
+{
+  "name": "shinyaudit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic on-chain investigator built on Somnia's Agentic L1. Submission for Somnia Agentathon 2026.",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "dotenv": "^17.4.2",
+    "framer-motion": "^11.11.0",
+    "geist": "^1.7.1",
+    "next": "15.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "server-only": "^0.0.1",
+    "undici": "^8.3.0",
+    "viem": "^2.21.40",
+    "wagmi": "^2.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "solc": "^0.8.35",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3"
+  }
+}

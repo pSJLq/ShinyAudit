@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "functions": {
+    "app/api/investigate/route.ts": {
+      "maxDuration": 900,
+      "memory": 1024
+    },
+    "app/api/identity/[addr]/route.ts": {
+      "maxDuration": 60,
+      "memory": 512
+    },
+    "app/api/dryrun/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/health/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/mcp/route.ts": {
+      "maxDuration": 300
+    }
+  },
+  "regions": ["fra1"]
+}

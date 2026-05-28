@@ -1,0 +1,35 @@
+{
+  "mainnet": {
+    "network": "Somnia Mainnet",
+    "chainId": 5031,
+    "rpcUrl": "https://api.infra.mainnet.somnia.network/",
+    "wsUrl": "wss://api.infra.mainnet.somnia.network/",
+    "explorerUrl": "https://explorer.somnia.network",
+    "nativeCurrency": { "name": "Somnia", "symbol": "SOMI", "decimals": 18 },
+    "agentExplorerUrl": "https://agents.somnia.network",
+    "receiptsBaseUrl": "https://receipts.mainnet.agents.somnia.host",
+    "contracts": {
+      "SomniaAgents": "0x5E5205CF39E766118C01636bED000A54D93163E6",
+      "AgentRegistry": "0xaD3101C37F091593fEe7cb471e92b5E9A1205194"
+    }
+  },
+  "testnet": {
+    "network": "Somnia Shannon Testnet",
+    "chainId": 50312,
+    "rpcUrl": "https://api.infra.testnet.somnia.network/",
+    "wsUrl": "wss://api.infra.testnet.somnia.network/",
+    "explorerUrl": "https://shannon-explorer.somnia.network/",
+    "nativeCurrency": { "name": "Somnia Testnet Token", "symbol": "STT", "decimals": 18 },
+    "agentExplorerUrl": "https://agents.testnet.somnia.network",
+    "receiptsBaseUrl": "https://receipts.testnet.agents.somnia.host",
+    "faucets": [
+      "https://testnet.somnia.network/",
+      "https://cloud.google.com/application/web3/faucet/somnia/shannon",
+      "https://stakely.io/faucet/somnia-testnet-stt"
+    ],
+    "contracts": {
+      "SomniaAgents": "0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776",
+      "AgentRegistry": "0x08D1Fc808f1983d2Ea7B63a28ECD4d8C885Cd02A"
+    }
+  }
+}
