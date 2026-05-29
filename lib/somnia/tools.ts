@@ -45,6 +45,15 @@ const EVENTS_AGG = (a: string) => `${BASE_URL}/api/events/${a}`;
 const RESOLVE_AGG = (q: string) => `${BASE_URL}/api/resolve?q=${encodeURIComponent(q)}`;
 const NFT_AGG = (a: string) => `${BASE_URL}/api/nft/${a}`;
 const TIMELINE_AGG = (a: string) => `${BASE_URL}/api/timeline/${a}`;
+// ── 10 hacker-grade endpoints ──
+const SELECTORS_AGG = (a: string) => `${BASE_URL}/api/selectors/${a}`;
+const BYTESCAN_AGG = (a: string) => `${BASE_URL}/api/bytecode-scan/${a}`;
+const HONEYPOT_AGG = (a: string) => `${BASE_URL}/api/honeypot/${a}`;
+const STORAGE_AGG = (a: string, slot: string) => `${BASE_URL}/api/storage/${a}?slot=${encodeURIComponent(slot || "0")}`;
+const DISTRIBUTION_AGG = (a: string) => `${BASE_URL}/api/distribution/${a}`;
+const WEALTH_AGG = (a: string) => `${BASE_URL}/api/wealth/${a}`;
+const ARCHETYPE_AGG = (a: string) => `${BASE_URL}/api/archetype/${a}`;
+const UPGRADES_AGG = (a: string) => `${BASE_URL}/api/upgrades/${a}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
@@ -1451,6 +1460,62 @@ export const TOOLS: ToolSpec[] = [
     description: "Chronological profile: first-seen + age, last-active + dormancy, tx cadence (one-shot/dormant/active), genesis counterparty. For 'when did this wake up', 'is it still active'.",
     args: { address: "0x..." },
     build: ({ address }) => ({ kind: "fetchString", url: TIMELINE_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "selectors",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "REVERSE-ENGINEER an UNVERIFIED contract: extracts function selectors from bytecode and resolves them to signatures via 4byte — recovers the callable ABI with NO source. Flags withdraw/mint/blacklist/upgrade. For 'what can this black-box contract do'.",
+    args: { address: "0x... contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: SELECTORS_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "bytecode_scan",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "Static OPCODE analysis of unverified bytecode: DELEGATECALL/SELFDESTRUCT/CREATE/CALL/SSTORE counts → flags proxy, self-destructible, factory, high external-call surface. Danger surface without source.",
+    args: { address: "0x... contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: BYTESCAN_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "honeypot",
+    agent: "json-fetch", fn: "fetchString", category: "token",
+    description: "CAN YOU SELL IT? Honeypot/rug detector for tokens: scans for blacklist/setFee/pause hooks, extreme sell tax, single-holder exit-liquidity trap. Returns 0-100 risk + sellable verdict. Essential before buying any token.",
+    args: { address: "0x... token" },
+    build: ({ address }) => ({ kind: "fetchString", url: HONEYPOT_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "storage",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "Read a raw STORAGE slot of any contract (hidden state even when unverified). slot = number, hex, or name (impl|admin|beacon for EIP-1967 proxy slots). e.g. storage(addr,'0') often = owner; storage(addr,'impl') = proxy logic.",
+    args: { address: "0x... contract", slot: "slot number, hex, or impl|admin|beacon" },
+    build: ({ address, slot }) => ({ kind: "fetchString", url: STORAGE_AGG(String(address), String(slot || "0")), selector: "summary" })
+  },
+  {
+    name: "distribution",
+    agent: "json-fetch", fn: "fetchString", category: "token",
+    description: "Token decentralization analysis: top-1/3/10 concentration %, Nakamoto coefficient, whale labels (DEX/treasury/vesting). Answers 'is this whale-controlled', 'where are team/community tokens', 'how fair is the distribution'.",
+    args: { address: "0x... token" },
+    build: ({ address }) => ({ kind: "fetchString", url: DISTRIBUTION_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "wealth",
+    agent: "json-fetch", fn: "fetchString", category: "account",
+    description: "Full portfolio of a wallet: native STT + every ERC-20 holding (with symbol) + NFT collection count, ranked. For 'how rich is this wallet', 'what does it hold'.",
+    args: { address: "0x... wallet" },
+    build: ({ address }) => ({ kind: "fetchString", url: WEALTH_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "archetype",
+    agent: "json-fetch", fn: "fetchString", category: "account",
+    description: "Behavioural classification: deployer / high-frequency bot / whale / hub (CEX-router-like) / fresh-burner / dormant. Infers WHAT KIND of actor an address is from its activity pattern.",
+    args: { address: "0x..." },
+    build: ({ address }) => ({ kind: "fetchString", url: ARCHETYPE_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "upgrades",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "Proxy upgrade analysis: current implementation (+ name), admin (EOA single-key ⚠ vs contract), and count of past Upgraded events. Answers 'is this upgradeable', 'who can change the logic', 'has it been upgraded'.",
+    args: { address: "0x... proxy contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: UPGRADES_AGG(String(address)), selector: "summary" })
   },
   {
     name: "tx_snapshot",
