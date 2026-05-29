@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   Block,
   Citation,
@@ -58,43 +60,66 @@ export function VerdictView({ verdict }: { verdict: Verdict | null | undefined }
   );
 }
 
-/* ============== inline markdown ============== */
-function renderInline(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let i = 0;
-  let key = 0;
-  while (i < text.length) {
-    if (text[i] === "*" && text[i + 1] === "*") {
-      const end = text.indexOf("**", i + 2);
-      if (end > -1) {
-        out.push(<strong key={key++}>{text.slice(i + 2, end)}</strong>);
-        i = end + 2;
-        continue;
-      }
-    }
-    if (text[i] === "`") {
-      const end = text.indexOf("`", i + 1);
-      if (end > -1) {
-        out.push(<code key={key++}>{text.slice(i + 1, end)}</code>);
-        i = end + 1;
-        continue;
-      }
-    }
-    let next = i;
-    while (next < text.length && text[next] !== "*" && text[next] !== "`") next++;
-    out.push(<span key={key++}>{text.slice(i, next)}</span>);
-    i = next;
-  }
-  return out;
+/* ============== markdown (GFM) ============== */
+// Full CommonMark + GitHub-flavoured markdown via react-markdown. Maps each
+// element to our terminal aesthetic via the `md-*` classes in chat.css.
+// Replaces the old hand-rolled parser that only understood ** and ` (so
+// headings, bullets, tables, links rendered as raw text).
+
+/** Lightweight inline renderer for short strings (block labels, list descs). */
+function renderInline(text: string): ReactNode {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // Strip the wrapping <p> so it stays inline.
+        p: ({ children }) => <>{children}</>,
+        a: ({ children, href }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="md-link">
+            {children}
+          </a>
+        ),
+        code: ({ children }) => <code className="md-code">{children}</code>
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 function MarkdownBlock({ text }: { text: string }) {
-  const paras = text.split(/\n\n+/);
   return (
-    <div className="block block-markdown">
-      {paras.map((p, idx) => (
-        <p key={idx}>{renderInline(p)}</p>
-      ))}
+    <div className="block block-markdown md-body">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ children, href }) => (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="md-link">
+              {children}
+            </a>
+          ),
+          code: ({ className, children }) => {
+            // Fenced code blocks get className like "language-solidity"; inline
+            // code has none. Style them differently.
+            const isBlock = !!className;
+            return isBlock ? (
+              <code className={"md-codeblock " + (className || "")}>{children}</code>
+            ) : (
+              <code className="md-code">{children}</code>
+            );
+          },
+          h1: ({ children }) => <h3 className="md-h md-h1">{children}</h3>,
+          h2: ({ children }) => <h3 className="md-h md-h2">{children}</h3>,
+          h3: ({ children }) => <h4 className="md-h md-h3">{children}</h4>,
+          table: ({ children }) => (
+            <div className="md-table-wrap">
+              <table className="md-table">{children}</table>
+            </div>
+          )
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }

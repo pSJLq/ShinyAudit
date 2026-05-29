@@ -185,11 +185,13 @@ export function applyEvent(curr: SwarmMsg, ev: StreamEvent): SwarmMsg {
       return next;
     }
     case "dossier": {
-      // Parse markdown into a verdict + body block.
+      // Parse markdown into a verdict + body block. The verdict line is
+      // lifted into the verdict card, so strip it from the body to avoid
+      // showing it twice.
       const verdict = parseVerdictFromMarkdown(ev.markdown, curr.title.kind);
       const bodyBlock: Block = {
         type: "markdown",
-        text: ev.markdown
+        text: stripVerdictLine(ev.markdown)
       };
       const riskList: Block | null = ev.flagged && ev.flagged.length > 0
         ? {
@@ -258,22 +260,51 @@ function shortHash(h: string): string {
   return `${h.slice(0, 6)}…${h.slice(-4)}`;
 }
 
+/** Strip inline markdown emphasis/code so the verdict headline renders clean. */
+function stripMd(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "$1")  // bold
+    .replace(/\*(.+?)\*/g, "$1")       // italic
+    .replace(/`(.+?)`/g, "$1")          // inline code
+    .replace(/^[#>\s-]+/, "")            // leading heading/quote/bullet marks
+    .trim();
+}
+
+/** Remove the leading "**Verdict:** …" line from the body (it's shown in the card). */
+function stripVerdictLine(md: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let removed = false;
+  for (const l of lines) {
+    if (!removed && /^\s*\**\s*verdict\s*:?\s*\**/i.test(l)) {
+      removed = true; // drop this one line
+      continue;
+    }
+    out.push(l);
+  }
+  // Trim leading blank lines left behind.
+  return out.join("\n").replace(/^\s*\n+/, "");
+}
+
 function parseVerdictFromMarkdown(md: string, kind: string): Verdict {
   const glyph = VERDICT_GLYPHS[kind] || "s";
-  // Look for first bullet in the summary or first paragraph after the title.
-  const lines = md.split("\n").map((l) => l.trim());
+  const rawLines = md.split("\n").map((l) => l.trim());
   let headline = "";
-  for (const l of lines) {
-    if (l.startsWith("##") || l.startsWith("#") || l.startsWith(">") || !l) continue;
-    if (l.startsWith("-") || l.startsWith("*")) {
-      headline = l.replace(/^[-*]\s*/, "").slice(0, 160);
-      break;
-    }
-    if (l.length > 20) {
-      headline = l.slice(0, 160);
-      break;
+
+  // 1) Prefer an explicit "**Verdict:** …" line if present.
+  for (const l of rawLines) {
+    const m = l.match(/^\**\s*verdict\s*:?\s*\**\s*(.+)$/i);
+    if (m && m[1]) { headline = stripMd(m[1]); break; }
+  }
+  // 2) Otherwise first bullet or first substantial paragraph.
+  if (!headline) {
+    for (const l of rawLines) {
+      if (l.startsWith("#") || l.startsWith(">") || !l) continue;
+      if (l.startsWith("-") || l.startsWith("*")) { headline = stripMd(l); break; }
+      if (l.length > 20) { headline = stripMd(l); break; }
     }
   }
+  headline = headline.slice(0, 200);
   if (!headline) headline = "investigation complete — see findings below.";
 
   // Crude risk-score derivation from headline keywords.
