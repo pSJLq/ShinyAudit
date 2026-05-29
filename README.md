@@ -78,7 +78,7 @@ node scripts/test-orchestrator.mjs 0x841b8199E6d3Db3C6f264f6C2bd8848b3cA64223 au
 | Path                                  | What it is                                                              |
 |---------------------------------------|-------------------------------------------------------------------------|
 | `app/`                                | Next.js routes (`/`, `/chat`, `/admin`, `/api/investigate`)              |
-| `app/chat/chat.css`                   | Scoped chat stylesheet (1100 lines, ported from Designv2)                |
+| `app/chat/chat.css`                   | Scoped chat stylesheet (~1100 lines)                                    |
 | `components/Nav.tsx`, etc.            | Marketing landing components                                             |
 | `components/chat/*`                   | 11 chat components — Chat, ChatNav, SessionStrip, AgentStrip, ...        |
 | `lib/somnia/*`                        | viem chain config, agent ABIs, server signer, orchestrator               |
