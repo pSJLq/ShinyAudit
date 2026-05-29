@@ -992,10 +992,11 @@ function findIdentityHits(history: Array<{ role: string; content: string }>): Ar
       // Extract address from args
       const addrMatch = m[1].match(/0x[a-fA-F0-9]{40}/);
       const addr = addrMatch ? addrMatch[0] : "unknown";
-      // identity_summary returns "handle1 (source1); handle2 (source2); ..."
-      // Split it so each source becomes its own hit.
+      // identity_summary returns "handle1 (source1); handle2 (source2)" OR
+      // "handle1 (source1) | handle2 (source2)" depending on endpoint version.
+      // Split on BOTH separators so we're robust to edge-cache version skew.
       if (tool === "identity_summary" && value.includes("(") && value.includes(")")) {
-        for (const segment of value.split(";")) {
+        for (const segment of value.split(/\s*[;|]\s*/)) {
           const s = segment.trim();
           const sm = s.match(/^(.+?)\s+\(([^)]+)\)\s*$/);
           if (sm) hits.push({ addr, handle: sm[1].trim(), source: sm[2].trim() });
