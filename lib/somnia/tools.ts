@@ -34,6 +34,17 @@ const CALL_AGG = (to: string, sig: string, args: string) =>
   `${BASE_URL}/api/call?to=${to}&sig=${encodeURIComponent(sig)}${args ? `&args=${encodeURIComponent(args)}` : ""}`;
 const DISCOVER_AGG = (kind: string, q: string, days: string) =>
   `${BASE_URL}/api/discover?kind=${encodeURIComponent(kind)}${q ? `&q=${encodeURIComponent(q)}` : ""}${days ? `&days=${encodeURIComponent(days)}` : ""}`;
+// ── 10 capability endpoints ──
+const CLASSIFY_AGG = (a: string) => `${BASE_URL}/api/classify/${a}`;
+const APPROVALS_AGG = (a: string) => `${BASE_URL}/api/approvals/${a}`;
+const FLOW_AGG = (a: string) => `${BASE_URL}/api/flow/${a}`;
+const SAFETY_AGG = (a: string) => `${BASE_URL}/api/safety/${a}`;
+const CLONES_AGG = (a: string) => `${BASE_URL}/api/clones/${a}`;
+const COMPARE_AGG = (a: string, b: string) => `${BASE_URL}/api/compare?a=${a}&b=${b}`;
+const EVENTS_AGG = (a: string) => `${BASE_URL}/api/events/${a}`;
+const RESOLVE_AGG = (q: string) => `${BASE_URL}/api/resolve?q=${encodeURIComponent(q)}`;
+const NFT_AGG = (a: string) => `${BASE_URL}/api/nft/${a}`;
+const TIMELINE_AGG = (a: string) => `${BASE_URL}/api/timeline/${a}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
@@ -1372,6 +1383,76 @@ export const TOOLS: ToolSpec[] = [
     build: ({ kind, q, days }) => ({ kind: "fetchString", url: DISCOVER_AGG(String(kind || "fresh"), String(q || ""), String(days || "")), selector: "summary" })
   },
   {
+    name: "classify",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "What TYPE is this contract? Probes interfaces (ERC20/721/1155/proxy/AMM-pool/multisig/royalty) via on-chain calls — works even for UNVERIFIED contracts. e.g. 'type=ERC20 | proxy=no'.",
+    args: { address: "0x... contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: CLASSIFY_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "approvals",
+    agent: "json-fetch", fn: "fetchString", category: "account",
+    description: "Token-approval scanner — the #1 wallet-drain vector. Lists active approvals and flags UNLIMITED ones + unverified spenders. Essential for 'is my wallet safe', 'what did I approve'.",
+    args: { address: "0x... wallet" },
+    build: ({ address }) => ({ kind: "fetchString", url: APPROVALS_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "flow",
+    agent: "json-fetch", fn: "fetchString", category: "tx",
+    description: "Fund-flow: top inflow sources + outflow destinations + net direction (net receiver/spender) with labels. Answers 'where did the money go / come from'.",
+    args: { address: "0x... wallet" },
+    build: ({ address }) => ({ kind: "fetchString", url: FLOW_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "safety",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "Aggregated risk score 0-100 (higher=riskier) for any address: scam flag, verified?, upgradeable proxy?, age/activity, labels. e.g. 'score=72/100 (HIGH) · risks: unverified; upgradeable'.",
+    args: { address: "0x..." },
+    build: ({ address }) => ({ kind: "fetchString", url: SAFETY_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "clones",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "Bytecode fingerprint + fork/clone detector. Returns codehash + flags EIP-1167 minimal-proxy clones (and their implementation). For 'is this a fork', 'is this a proxy clone'.",
+    args: { address: "0x... contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: CLONES_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "compare",
+    agent: "json-fetch", fn: "fetchString", category: "account",
+    description: "Are two addresses LINKED / the same person? Checks shared creator, shared first-funder, direct transfers, shared counterparties. For 'is wallet A connected to B', 'same owner?'.",
+    args: { a: "0x... first address", b: "0x... second address" },
+    build: ({ a, b }) => ({ kind: "fetchString", url: COMPARE_AGG(String(a), String(b)), selector: "summary" })
+  },
+  {
+    name: "events",
+    agent: "json-fetch", fn: "fetchString", category: "logs",
+    description: "Human-readable recent event feed of a contract — decoded as 'Transfer×6; Swap×3; OwnershipTransferred'. Answers 'what has this contract been doing'.",
+    args: { address: "0x... contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: EVENTS_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "resolve",
+    agent: "json-fetch", fn: "fetchString", category: "identity",
+    description: "NAME → address (and reverse). Type a name not an address: 'vitalik.eth', 'SomniaExchange', or a 0x to reverse-resolve its label. Use FIRST when the user names a target by word instead of hex.",
+    args: { q: "name, ENS, or 0x address" },
+    build: ({ q }) => ({ kind: "fetchString", url: RESOLVE_AGG(String(q)), selector: "summary" })
+  },
+  {
+    name: "nft",
+    agent: "json-fetch", fn: "fetchString", category: "token",
+    description: "NFT collection analyzer: name, supply, holder count, top-holder concentration %, royalty %. For 'analyze this NFT collection', 'how concentrated is this drop'.",
+    args: { address: "0x... NFT contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: NFT_AGG(String(address)), selector: "summary" })
+  },
+  {
+    name: "timeline",
+    agent: "json-fetch", fn: "fetchString", category: "account",
+    description: "Chronological profile: first-seen + age, last-active + dormancy, tx cadence (one-shot/dormant/active), genesis counterparty. For 'when did this wake up', 'is it still active'.",
+    args: { address: "0x..." },
+    build: ({ address }) => ({ kind: "fetchString", url: TIMELINE_AGG(String(address)), selector: "summary" })
+  },
+  {
     name: "tx_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "tx",
     description: "One on-chain dispatch — full tx summary: from | to | value | method | status | block | gas. Receipt on Somnia.",
@@ -1432,7 +1513,10 @@ const UNIVERSAL_CORE: string[] = [
   "contract_source",      // bounded verified source (head + security lines) for deep reads
   "address_total_txs",    // activity volume → fresh vs established
   "method_label",         // decode a 4-byte selector to a human method name
-  "discover"              // find-by-criterion: fresh/trending contracts, top tokens, search
+  "discover",             // find-by-criterion: fresh/trending contracts, top tokens, search
+  "resolve",              // name→address: lets users name a target by word, not hex
+  "safety",               // one-number risk score for any address
+  "classify"              // what TYPE is this contract (works on unverified)
 ];
 
 export function renderToolsCatalogueFor(intent: string | null): string {
