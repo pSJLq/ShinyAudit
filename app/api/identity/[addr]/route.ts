@@ -81,12 +81,49 @@ async function probe(source: string, fn: () => Promise<string | null>): Promise<
 
 // ── individual probes ──────────────────────────────────────────────
 
-async function probeOpenSea(addr: string): Promise<string | null> {
+interface OpenSeaProfile {
+  username: string | null;
+  twitter: string | null;
+  instagram: string | null;
+  website: string | null;
+  bio: string | null;
+  verified: boolean;
+}
+
+/**
+ * Rich OpenSea profile scrape. The account object embedded in the profile
+ * HTML carries every connected social — not just the OpenSea username. We
+ * extract them ALL so "find the X account" / "find socials" works without
+ * any extra tool. This is the comprehensive-data philosophy: surface
+ * everything that exists, let the agent/synth decide what's relevant.
+ */
+async function probeOpenSeaRich(addr: string): Promise<OpenSeaProfile> {
+  const empty: OpenSeaProfile = { username: null, twitter: null, instagram: null, website: null, bio: null, verified: false };
   // Node's undici fetch is fingerprint-blocked by OpenSea. Use curl child.
   const html = await curlGet(`https://opensea.io/${addr}`);
-  if (!html) return null;
-  const m = html.match(/"username":"([^"]+)"/);
-  return m && m[1] && m[1] !== "null" ? m[1] : null;
+  if (!html) return empty;
+  const grab = (re: RegExp): string | null => {
+    const m = html.match(re);
+    const v = m?.[1];
+    return v && v !== "null" && v.trim() ? v.trim() : null;
+  };
+  // The first non-null username in the account blob is the profile owner's.
+  const usernames = [...html.matchAll(/"username":"([^"]+)"/g)]
+    .map((m) => m[1])
+    .filter((u) => u && u !== "null");
+  return {
+    username: usernames[0] ?? null,
+    twitter: grab(/"twitterUsername":"([^"]+)"/),
+    instagram: grab(/"instagramUsername":"([^"]+)"/),
+    website: grab(/"websiteUrl":"([^"]+)"/) || grab(/"externalUrl":"([^"]+)"/),
+    bio: grab(/"bio":"([^"]{0,160})/),
+    verified: /"isVerified":true/.test(html)
+  };
+}
+
+// Back-compat thin wrapper (best handle only).
+async function probeOpenSea(addr: string): Promise<string | null> {
+  return (await probeOpenSeaRich(addr)).username;
 }
 
 async function probeENSIdeas(addr: string): Promise<string | null> {
@@ -179,8 +216,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ addr: stri
     return json({ ok: false, error: "invalid address" }, 400);
   }
   const lower = addr.toLowerCase();
-  const probes = await Promise.all([
-    probe("opensea",       () => probeOpenSea(addr)),
+  // OpenSea is the richest source (carries connected socials), probe it
+  // separately for the full object; the rest return single handles.
+  const [os, ...probes] = await Promise.all([
+    probeOpenSeaRich(addr),
     probe("ensideas",      () => probeENSIdeas(addr)),
     probe("ens_subgraph",  () => probeENSSubgraph(lower)),
     probe("farcaster",     () => probeFarcasterByAddress(addr)),
@@ -190,11 +229,16 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ addr: stri
   ]);
 
   const results: Record<string, string | null> = {};
+  // Spread every OpenSea-connected social as its own source so the agent
+  // and synth see them individually — X/Twitter is first-class, not buried.
+  results.opensea   = os.username;
+  results.x_twitter = os.twitter;       // ← the field that was missing
+  results.instagram = os.instagram;
+  results.website   = os.website;
+  for (const p of probes) results[p.source] = p.value;
+
   let hits = 0;
-  for (const p of probes) {
-    results[p.source] = p.value;
-    if (p.value) hits++;
-  }
+  for (const v of Object.values(results)) if (v) hits++;
 
   // Aggregate "best guess" identity. Priority: ENS > OpenSea > Lens > Farcaster > Mirror > Galxe.
   const best =
@@ -208,13 +252,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ addr: stri
     null;
 
   // Compact summary — for on-chain fetchString with selector="summary".
-  // Single small string the Somnia validator consensus converges on fast.
-  // "Shiny11111 (opensea); vitalik.eth (ensideas)" or "none on 7 sources".
+  // Lists EVERY connected handle so "find X account / socials / who is this"
+  // all answer from one dispatch. e.g.
+  //   "selskayashiny (opensea); ShinyViq (x_twitter); vitalik.eth (ensideas)"
   const hitParts: string[] = [];
   for (const [src, val] of Object.entries(results)) {
     if (val) hitParts.push(`${val} (${src})`);
   }
-  const summary = hitParts.length ? hitParts.join("; ") : "none on 7 sources";
+  const summary = hitParts.length ? hitParts.join("; ") : "none on 8 sources";
 
   return json({
     ok: true,
@@ -222,6 +267,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ addr: stri
     hits,
     best,
     summary,
+    bio: os.bio,
+    verified: os.verified,
     results,
     probes: probes.map((p) => ({ source: p.source, ms: p.ms, ok: p.value != null, detail: p.detail }))
   });

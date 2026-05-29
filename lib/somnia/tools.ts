@@ -1382,42 +1382,63 @@ export function renderToolsCatalogue(): string {
  *  - Intent picks a HARD-CAPPED subset of tools (most relevant 20-30)
  *  - Descriptions only for the top "essentials" per intent
  */
+/**
+ * UNIVERSAL CORE — the highest-leverage tools, ALWAYS available in every
+ * catalogue regardless of intent, always with a description. These cover the
+ * ~80% of any investigation: full snapshots, identity (all socials in one),
+ * provenance (creator/funder), and labelling. The agent reaches these for ANY
+ * question, so the product adapts to thousands of contexts instead of being
+ * caged by 7 fixed intent buckets. Intent only ADDS specialized tools.
+ */
+const UNIVERSAL_CORE: string[] = [
+  "wallet_snapshot",      // balance + tx count + is_contract + ens + public_name, 1 dispatch
+  "contract_snapshot",    // name + compiler + proxy + creator + source size, 1 dispatch
+  "token_snapshot",       // ERC20/721 name + symbol + supply + holders, 1 dispatch
+  "tx_snapshot",          // from + to + value + method + status, 1 dispatch
+  "identity_summary",     // EVERY connected handle: opensea, X/twitter, ENS, lens, farcaster, ...
+  "address_creator",      // who deployed a contract
+  "address_first_tx_funder", // who funded a fresh wallet (de-anon lead)
+  "tx_counterparty",      // top counterparties of a wallet
+  "contract_name",        // verified protocol name for any address
+  "contract_source",      // full verified source for deep reads
+  "address_total_txs",    // activity volume → fresh vs established
+  "method_label"          // decode a 4-byte selector to a human method name
+];
+
 export function renderToolsCatalogueFor(intent: string | null): string {
+  // Specialized categories ADDED on top of the universal core per intent.
   const cats: Record<string, ToolSpec["category"][]> = {
-    audit:   ["contract", "tx", "logs", "identity"],   // identity matters when "who deployed" is asked
+    audit:   ["contract", "tx", "logs", "identity"],
     profile: ["account", "tx", "identity"],
-    trace:   ["tx", "token", "logs", "identity"],      // CEX/funder identity surfaces in money flow
-    xray:    ["token", "contract", "identity"],        // who deployed this token
+    trace:   ["tx", "token", "logs", "identity"],
+    xray:    ["token", "contract", "identity"],
     watch:   ["account", "contract", "tx"],
-    stealth: ["account", "contract", "tx", "identity"],// stealth-launch suspect: who's the deployer
-    free:    ["account", "tx", "contract", "identity"]
+    stealth: ["account", "contract", "tx", "identity"],
+    free:    ["account", "tx", "contract", "token", "identity", "logs"] // free = widest
   };
   const allow = (intent && cats[intent]) || cats.free;
+  const coreSet = new Set(UNIVERSAL_CORE);
 
-  // Intent-specific "essentials" — these tools get a one-sentence description.
-  // Everything else is just `name(args)`.
-  const essentials: Record<string, string[]> = {
-    audit:   ["contract_snapshot","contract_name","contract_source","contract_compiler","contract_is_proxy","address_proxy_implementation_addr","tx_method_id","method_label","wallet_balance","address_reputation","address_is_scam","contract_deployed_bytecode","tx_full_method_call","address_creator","identity_best","identity_opensea_handle"],
-    profile: ["wallet_snapshot","identity_best","identity_opensea_handle","identity_ens_resolved","identity_farcaster_handle","identity_lens_handle","wallet_balance","address_total_txs","address_creator","address_first_tx_funder","address_first_tx_timestamp","tx_counterparty","tx_method_id","method_label","contract_name","address_ens_domain","address_public_name","address_reputation"],
-    trace:   ["tx_snapshot","tx_counterparty","tx_value","tx_method_id","method_label","contract_name","tokentx_token_symbol","tokentx_amount","tokentx_to","tx_full_method_call","balance_history_delta","balance_history_tx","address_reputation"],
-    xray:    ["token_snapshot","token_name","token_symbol","token_supply","token_decimals","token_v2_holders_count","token_holders_v2_address","token_holders_v2_value","contract_name","contract_is_proxy","address_creator","identity_best"],
-    watch:   ["wallet_snapshot","wallet_balance","address_total_txs","tx_hash","tx_method_id","method_label","tx_timestamp","contract_name","address_proxy_type"],
-    stealth: ["wallet_snapshot","identity_best","address_total_txs","internal_deploy_addr","contract_name","contract_creation_bytecode","tx_method_id","method_label","address_creation_tx","address_first_tx_funder"],
-    free:    ["wallet_snapshot","contract_snapshot","identity_best","identity_opensea_handle","identity_ens_resolved","address_creator","address_first_tx_funder","wallet_balance","address_is_contract","address_ens_domain","tx_counterparty","contract_name","tx_method_id"]
-  };
-  const ess = new Set(essentials[intent || "free"] || essentials.free);
-
-  const list = TOOLS.filter((t) => allow.includes(t.category));
   const lines: string[] = [];
-  for (const t of list) {
+
+  // 1) Universal core first, each with a one-line description.
+  lines.push("# CORE (use for ANY question — each is ONE on-chain dispatch):");
+  for (const name of UNIVERSAL_CORE) {
+    const t = TOOL_BY_NAME[name];
+    if (!t) continue;
     const argList = Object.keys(t.args).join(",");
-    if (ess.has(t.name)) {
-      // include short description for essentials
-      const desc = t.description.split(/[.!]/)[0].slice(0, 80);
-      lines.push(`${t.name}(${argList}) — ${desc}`);
-    } else {
-      lines.push(`${t.name}(${argList})`);
-    }
+    const desc = t.description.split(/[.!]/)[0].slice(0, 90);
+    lines.push(`${t.name}(${argList}) — ${desc}`);
+  }
+
+  // 2) Intent-specialized tools (names only, the core already covers basics).
+  lines.push("# SPECIALIZED (intent-specific extras):");
+  for (const t of TOOLS) {
+    if (coreSet.has(t.name)) continue;            // already in core
+    if (t.name.startsWith("_")) continue;          // internal/hidden
+    if (!allow.includes(t.category)) continue;
+    const argList = Object.keys(t.args).join(",");
+    lines.push(`${t.name}(${argList})`);
   }
   return lines.join("\n");
 }
