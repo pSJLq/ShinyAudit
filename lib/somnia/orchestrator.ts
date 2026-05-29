@@ -973,6 +973,7 @@ function findIdentityHits(history: Array<{ role: string; content: string }>): Ar
   const hits: Array<{ addr: string; handle: string; source: string }> = [];
   const identityTools = [
     "identity_summary", // on-chain single-dispatch aggregator — primary path
+    "contract_owner",   // owner-resolver: "owner=0xABC (handle src, handle2 src2) | admin=…"
     "identity_best", "identity_opensea_handle", "identity_ens_resolved",
     "identity_farcaster_handle", "identity_lens_handle", "identity_mirror_handle",
     "identity_galxe_handle", "address_ens_domain", "address_public_name",
@@ -986,22 +987,43 @@ function findIdentityHits(history: Array<{ role: string; content: string }>): Ar
       const m = h.content.match(re);
       if (!m) continue;
       const value = m[2].trim();
-      // Skip empty / null / failed / "none on 7 sources"
+      // Skip empty / null / failed / "none on N sources"
       if (!value || value === "(failed)" || value === "null" || value === "(empty)" ||
-          value === '""' || value === "''" || value.startsWith("none on")) continue;
-      // Extract address from args
-      const addrMatch = m[1].match(/0x[a-fA-F0-9]{40}/);
-      const addr = addrMatch ? addrMatch[0] : "unknown";
-      // identity_summary returns "handle1 (source1); handle2 (source2)" OR
-      // "handle1 (source1) | handle2 (source2)" depending on endpoint version.
-      // Split on BOTH separators so we're robust to edge-cache version skew.
-      if (tool === "identity_summary" && value.includes("(") && value.includes(")")) {
+          value === '""' || value === "''" || value.startsWith("none on") ||
+          value.startsWith("no on-chain owner")) continue;
+
+      if (tool === "contract_owner") {
+        // "owner=0xABC… (Shiny11111 opensea, ShinyViq x_twitter) | creator=0xDEF…"
+        // For each role segment, pull its address and any (handle src, …) list.
+        for (const segment of value.split(" | ")) {
+          const addrM = segment.match(/0x[a-fA-F0-9]{40}/);
+          if (!addrM) continue;
+          const ownerAddr = addrM[0];
+          const role = segment.split("=")[0]?.trim() || "owner";
+          const paren = segment.match(/\(([^)]+)\)/);
+          if (paren) {
+            // identity present — split "handle src, handle2 src2" or "h (src); h2 (src2)"
+            for (const piece of paren[1].split(/[;,]/)) {
+              const p = piece.trim();
+              if (!p) continue;
+              const sm = p.match(/^(.+?)\s+\(?([a-z_]+)\)?$/i);
+              if (sm) hits.push({ addr: ownerAddr, handle: `${sm[1].trim()} [${role}]`, source: sm[2].trim() });
+              else hits.push({ addr: ownerAddr, handle: `${p} [${role}]`, source: "owner-resolver" });
+            }
+          }
+        }
+      } else if (tool === "identity_summary" && value.includes("(") && value.includes(")")) {
+        // "handle1 (source1); handle2 (source2)" OR " | " separated.
+        const addrMatch = m[1].match(/0x[a-fA-F0-9]{40}/);
+        const addr = addrMatch ? addrMatch[0] : "unknown";
         for (const segment of value.split(/\s*[;|]\s*/)) {
           const s = segment.trim();
           const sm = s.match(/^(.+?)\s+\(([^)]+)\)\s*$/);
           if (sm) hits.push({ addr, handle: sm[1].trim(), source: sm[2].trim() });
         }
       } else {
+        const addrMatch = m[1].match(/0x[a-fA-F0-9]{40}/);
+        const addr = addrMatch ? addrMatch[0] : "unknown";
         hits.push({ addr, handle: value, source: tool });
       }
     }
@@ -1167,35 +1189,49 @@ export async function* runAgentLoop(
   }
 
   // ─── PRE-FLIGHT — on-chain Somnia dispatches, real receipts ──
-  // For any 0x target, automatically dispatch two on-chain tools BEFORE the
-  // planner runs: contract_snapshot (one fetchString on /api/snapshot, small
-  // <500-char summary → fast consensus) + identity_summary (same shape on
-  // /api/identity). Both produce real Somnia agent receipts. Planner starts
-  // round 1 with full target context, saving rounds.
+  // For any 0x target, dispatch a small set of high-leverage on-chain tools
+  // BEFORE the planner runs, so round 1 starts with the answer often already
+  // in hand. Each is ONE fetchString against a smart endpoint returning a
+  // <500-char summary → fast validator consensus, real receipt.
   if (/^0x[a-fA-F0-9]{40}$/.test(target)) {
-    yield { type: "log", stepId: "preflight", line: `pre-flight: on-chain snapshot + identity (Somnia agents, receipts on agent platform)` };
+    yield { type: "log", stepId: "preflight", line: `pre-flight: on-chain snapshot + owner + identity (Somnia agents, receipts on agent platform)` };
     yield {
       type: "plan",
       steps: [
-        { id: "preflight.snapshot",  slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `contract_snapshot(${target.slice(0, 10)}…)`,  costEstimateSTT: ESTIMATE("json-fetch") },
-        { id: "preflight.identity",  slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `identity_summary(${target.slice(0, 10)}…)`,   costEstimateSTT: ESTIMATE("json-fetch") }
+        { id: "preflight.snapshot", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `contract_snapshot(${target.slice(0, 10)}…)`, costEstimateSTT: ESTIMATE("json-fetch") },
+        { id: "preflight.owner",    slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `contract_owner(${target.slice(0, 10)}…)`,    costEstimateSTT: ESTIMATE("json-fetch") },
+        { id: "preflight.identity", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `identity_summary(${target.slice(0, 10)}…)`,  costEstimateSTT: ESTIMATE("json-fetch") }
       ]
     };
     const snap = yield* runRailTool("preflight.snapshot", "contract_snapshot", { address: target });
     cumulativeCostSTT += ESTIMATE("json-fetch");
+
+    // contract_owner is THE answer to "who controls this": it reads
+    // owner()/admin()/houseManager()/governance()/creator on-chain AND
+    // resolves each controller's web-3 identity in the same dispatch.
+    const ownerSummary = yield* runRailTool("preflight.owner", "contract_owner", { address: target });
+    cumulativeCostSTT += ESTIMATE("json-fetch");
+
+    // identity_summary on the target itself (covers the case where the target
+    // is an EOA, e.g. "find the X account of this wallet").
     yield* runRailTool("preflight.identity", "identity_summary", { address: target });
     cumulativeCostSTT += ESTIMATE("json-fetch");
 
-    // Parse creator from on-chain snapshot return value (string "name=X | creator=0xABC | …")
-    const creatorMatch = snap?.match(/creator=(0x[a-fA-F0-9]{40})/);
-    const creator = creatorMatch?.[1];
-    if (identityQ && creator && /^0x[a-fA-F0-9]{40}$/.test(creator) && cumulativeCostSTT < HARD_BUDGET_STT) {
-      yield { type: "log", stepId: "preflight", line: `creator ${creator.slice(0, 10)}… surfaced — on-chain identity probe on creator` };
+    // Surface any 0x controller/creator the owner-resolver returned but
+    // couldn't identity-resolve itself (e.g. nested ownership), and probe it.
+    const ownerAddrs = [...(ownerSummary || "").matchAll(/0x[a-fA-F0-9]{40}/g)].map((m) => m[0]);
+    const snapCreator = snap?.match(/creator=(0x[a-fA-F0-9]{40})/)?.[1];
+    const extra = [...new Set([...(snapCreator ? [snapCreator] : []), ...ownerAddrs])]
+      .filter((a) => a.toLowerCase() !== target.toLowerCase())
+      .filter((a) => !alreadyIdentityProbed(history, a))
+      .slice(0, 1); // one extra hop is enough at pre-flight; planner can go deeper
+    if (identityQ && extra.length && cumulativeCostSTT < HARD_BUDGET_STT) {
+      yield { type: "log", stepId: "preflight", line: `controller ${extra[0].slice(0, 10)}… surfaced — on-chain identity probe` };
       yield {
         type: "plan",
-        steps: [{ id: "preflight.creator_identity", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `identity_summary(creator)`, costEstimateSTT: ESTIMATE("json-fetch") }]
+        steps: [{ id: "preflight.controller_identity", slug: AGENT_SLUG.JSON_FETCH, fnName: "fetchString", description: `identity_summary(controller)`, costEstimateSTT: ESTIMATE("json-fetch") }]
       };
-      yield* runRailTool("preflight.creator_identity", "identity_summary", { address: creator });
+      yield* runRailTool("preflight.controller_identity", "identity_summary", { address: extra[0] });
       cumulativeCostSTT += ESTIMATE("json-fetch");
     }
   }

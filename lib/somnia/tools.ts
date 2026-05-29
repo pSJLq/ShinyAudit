@@ -29,6 +29,7 @@ const SNAPSHOT_AGG = (address: string) => `${BASE_URL}/api/snapshot/${address}`;
 const SNAPSHOT_TX  = (hash: string)    => `${BASE_URL}/api/snapshot/tx/${hash}`;
 const SNAPSHOT_TOKEN = (address: string) => `${BASE_URL}/api/snapshot/token/${address}`;
 const SOURCE_AGG = (address: string) => `${BASE_URL}/api/source/${address}`;
+const OWNER_AGG = (address: string) => `${BASE_URL}/api/owner/${address}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
@@ -1346,6 +1347,13 @@ export const TOOLS: ToolSpec[] = [
     build: ({ address }) => ({ kind: "fetchString", url: IDENTITY_AGG(String(address)), selector: "summary" })
   },
   {
+    name: "contract_owner",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "THE answer to 'who owns/controls this'. Reads owner()/admin()/houseManager()/governance()/creator on-chain AND resolves each one's identity (OpenSea, X/Twitter, ENS). e.g. 'owner=0x3fFa… (Shiny11111 opensea, ShinyViq x_twitter)'. One dispatch.",
+    args: { address: "0x... contract" },
+    build: ({ address }) => ({ kind: "fetchString", url: OWNER_AGG(String(address)), selector: "summary" })
+  },
+  {
     name: "tx_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "tx",
     description: "One on-chain dispatch — full tx summary: from | to | value | method | status | block | gas. Receipt on Somnia.",
@@ -1392,16 +1400,17 @@ export function renderToolsCatalogue(): string {
  * caged by 7 fixed intent buckets. Intent only ADDS specialized tools.
  */
 const UNIVERSAL_CORE: string[] = [
-  "wallet_snapshot",      // balance + tx count + is_contract + ens + public_name, 1 dispatch
+  "contract_owner",       // who owns/controls — reads owner()/admin()/… + resolves their identity
+  "identity_summary",     // EVERY connected handle: opensea, X/twitter, ENS, lens, farcaster, ...
   "contract_snapshot",    // name + compiler + proxy + creator + source size, 1 dispatch
+  "wallet_snapshot",      // balance + tx count + is_contract + ens + public_name, 1 dispatch
   "token_snapshot",       // ERC20/721 name + symbol + supply + holders, 1 dispatch
   "tx_snapshot",          // from + to + value + method + status, 1 dispatch
-  "identity_summary",     // EVERY connected handle: opensea, X/twitter, ENS, lens, farcaster, ...
   "address_creator",      // who deployed a contract
   "address_first_tx_funder", // who funded a fresh wallet (de-anon lead)
   "tx_counterparty",      // top counterparties of a wallet
   "contract_name",        // verified protocol name for any address
-  "contract_source",      // full verified source for deep reads
+  "contract_source",      // bounded verified source (head + security lines) for deep reads
   "address_total_txs",    // activity volume → fresh vs established
   "method_label"          // decode a 4-byte selector to a human method name
 ];
