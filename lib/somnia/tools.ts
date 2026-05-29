@@ -30,6 +30,10 @@ const SNAPSHOT_TX  = (hash: string)    => `${BASE_URL}/api/snapshot/tx/${hash}`;
 const SNAPSHOT_TOKEN = (address: string) => `${BASE_URL}/api/snapshot/token/${address}`;
 const SOURCE_AGG = (address: string) => `${BASE_URL}/api/source/${address}`;
 const OWNER_AGG = (address: string) => `${BASE_URL}/api/owner/${address}`;
+const CALL_AGG = (to: string, sig: string, args: string) =>
+  `${BASE_URL}/api/call?to=${to}&sig=${encodeURIComponent(sig)}${args ? `&args=${encodeURIComponent(args)}` : ""}`;
+const DISCOVER_AGG = (kind: string, q: string, days: string) =>
+  `${BASE_URL}/api/discover?kind=${encodeURIComponent(kind)}${q ? `&q=${encodeURIComponent(q)}` : ""}${days ? `&days=${encodeURIComponent(days)}` : ""}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
@@ -1354,6 +1358,20 @@ export const TOOLS: ToolSpec[] = [
     build: ({ address }) => ({ kind: "fetchString", url: OWNER_AGG(String(address)), selector: "summary" })
   },
   {
+    name: "view_call",
+    agent: "json-fetch", fn: "fetchString", category: "contract",
+    description: "UNIVERSAL: read ANY view/pure function of ANY contract by signature. sig like 'getReserves()' or 'balanceOf(address)'; args = comma-separated values (omit if none). Examples: view_call(to, 'totalSupply()'), view_call(pool, 'getReserves()'), view_call(token, 'balanceOf(address)', '0xWALLET'), view_call(vesting, 'released()'). The skeleton key for any on-chain state.",
+    args: { to: "0x... contract", sig: "fn signature e.g. balanceOf(address)", args: "comma-separated args or empty" },
+    build: ({ to, sig, args }) => ({ kind: "fetchString", url: CALL_AGG(String(to), String(sig || ""), String(args || "")), selector: "summary" })
+  },
+  {
+    name: "discover",
+    agent: "json-fetch", fn: "fetchString", category: "stats",
+    description: "DISCOVERY / find-things-by-criterion (not by address). kind='fresh' (recently-verified contracts = who's building, set days=7), kind='trending' (fresh contracts ranked by tx activity), kind='tokens' (top tokens by holders), kind='search' (full-text find by name, needs q). Use for 'top projects this week', 'newest contracts', 'find X protocol'.",
+    args: { kind: "fresh|trending|tokens|search", q: "search query (only for kind=search)", days: "window in days (fresh/trending), default 7" },
+    build: ({ kind, q, days }) => ({ kind: "fetchString", url: DISCOVER_AGG(String(kind || "fresh"), String(q || ""), String(days || "")), selector: "summary" })
+  },
+  {
     name: "tx_snapshot",
     agent: "json-fetch", fn: "fetchString", category: "tx",
     description: "One on-chain dispatch — full tx summary: from | to | value | method | status | block | gas. Receipt on Somnia.",
@@ -1400,6 +1418,7 @@ export function renderToolsCatalogue(): string {
  * caged by 7 fixed intent buckets. Intent only ADDS specialized tools.
  */
 const UNIVERSAL_CORE: string[] = [
+  "view_call",            // ★ read ANY view fn of ANY contract by signature — the skeleton key
   "contract_owner",       // who owns/controls — reads owner()/admin()/… + resolves their identity
   "identity_summary",     // EVERY connected handle: opensea, X/twitter, ENS, lens, farcaster, ...
   "contract_snapshot",    // name + compiler + proxy + creator + source size, 1 dispatch
@@ -1412,7 +1431,8 @@ const UNIVERSAL_CORE: string[] = [
   "contract_name",        // verified protocol name for any address
   "contract_source",      // bounded verified source (head + security lines) for deep reads
   "address_total_txs",    // activity volume → fresh vs established
-  "method_label"          // decode a 4-byte selector to a human method name
+  "method_label",         // decode a 4-byte selector to a human method name
+  "discover"              // find-by-criterion: fresh/trending contracts, top tokens, search
 ];
 
 export function renderToolsCatalogueFor(intent: string | null): string {

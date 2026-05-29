@@ -902,13 +902,14 @@ function truncate(s: string, n: number): string {
 // 4 tools ≈ 8 on-chain dispatches in 90–180s, which is the UX sweet spot.
 // Audit gets a bigger budget because deep contract analysis needs source +
 // admin-tx history + state checks across multiple rounds.
-const MAX_ROUNDS_DEFAULT = 2;
-const MAX_ROUNDS_AUDIT = 3;
-// Profile / free questions about identity often need 4 rounds:
-//  R1 surface basic facts, R2 identity probe on target, R3 funding-trail if
-//  no identity hit, R4 identity probe on funder. Two rounds isn't enough.
-const MAX_ROUNDS_PROFILE = 4;
-const MAX_ROUNDS_FREE = 4;
+// Round caps raised for deep multi-hop chains (token→holders→vesting→
+// beneficiary→identity is 5+ hops). The real guards against runaway are the
+// STT budget cap + the no-progress detector below, so a higher ceiling is
+// safe: the loop stops as soon as it answers OR stops learning.
+const MAX_ROUNDS_DEFAULT = 3;
+const MAX_ROUNDS_AUDIT = 4;
+const MAX_ROUNDS_PROFILE = 6;
+const MAX_ROUNDS_FREE = 6;
 const MAX_TOOLS_PER_ROUND = 4;
 
 function maxRoundsFor(intent: ReturnType<typeof detectIntent>): number {
@@ -1236,11 +1237,32 @@ export async function* runAgentLoop(
     }
   }
 
+  // No-progress detector: count distinct successful tool facts in history.
+  // If a full round adds zero new facts, the investigation has plateaued —
+  // finalize instead of burning more rounds/STT on repeats.
+  const factCount = () =>
+    history.filter((h) => h.role === "tool" && !/→\s*\(failed\)\s*$/.test(h.content)).length;
+  let lastFactCount = factCount();
+
   for (let round = 0; round < roundLimit; round++) {
     // ─── budget guard ────────────────────────────────────────
     if (cumulativeCostSTT > HARD_BUDGET_STT) {
       yield { type: "log", stepId: `planner.${round}`, line: `cumulative cost ${cumulativeCostSTT.toFixed(2)} STT > ${HARD_BUDGET_STT} STT cap — finalizing with what we have` };
       break;
+    }
+    // ─── no-progress guard ───────────────────────────────────
+    // After the first round, if the previous round produced no new facts,
+    // stop — the agent is spinning. (Checked at round start using the count
+    // captured at the end of the prior round.)
+    if (round > 1) {
+      const now = factCount();
+      if (now <= lastFactCount) {
+        yield { type: "log", stepId: `planner.${round}`, line: `no new facts last round — finalizing (plateau)` };
+        break;
+      }
+      lastFactCount = now;
+    } else {
+      lastFactCount = factCount();
     }
     // ─── early-stop on identity hit ──────────────────────────
     // If user asked "who/etc" AND we've found at least one identity hit
@@ -1824,6 +1846,10 @@ function renderPlannerSystem(_prompt: string, target: string, intent: ReturnType
     "PRINCIPLES — think like an investigator, not a script:",
     "",
     "1. ALWAYS START with one composite snapshot of the primary target (contract_snapshot if contract, wallet_snapshot if EOA). It pulls 4 base facts so you can REASON about what to do next.",
+    "",
+    "1b. view_call IS YOUR SKELETON KEY. If the question needs ANY on-chain value a named tool doesn't cover, call view_call(to, 'signature()', args). Examples: pool depth → view_call(pool,'getReserves()'); team's token balance → view_call(token,'balanceOf(address)','0xTEAM'); vesting unlock → view_call(vesting,'cliff()') + view_call(vesting,'released()') + view_call(vesting,'beneficiary()'); supply cap → view_call(token,'maxSupply()'); paused → view_call(c,'paused()'). NEVER answer 'cannot be determined' before trying view_call with the obvious getter for that question.",
+    "",
+    "1c. discover IS FOR FIND-BY-CRITERION questions (no specific address given). 'top/new projects', 'who's building', 'newest contracts' → discover(kind='fresh',days=7) or discover(kind='trending'). 'find <name> protocol/token' → discover(kind='search',q='<name>'). 'biggest tokens' → discover(kind='tokens'). Then snapshot/identity the interesting results.",
     "",
     "2. EVERY surfaced 0x address (creator, owner, oracle, factory, implementation, treasury, governance, top counterparty, first funder) is a NEW investigation lead. Walk the graph. Multi-hop is normal.",
     "",
