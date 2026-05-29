@@ -2090,10 +2090,33 @@ function formatToolArgs(args: Record<string, string | number>): string {
 
 // ---------- finalization polling ----------
 
+/**
+ * PRIMARY anti-hang signal: does the HTTP receipts API already have a usable
+ * output for this request? The receipts API is the source of truth and is
+ * immune to missed on-chain events — so polling it directly is what stops the
+ * "request slot cleared, server may have missed the finalise event" hang.
+ * Returns true if any consensus OR individual-validator output exists.
+ */
+async function peekReceiptReady(requestId: bigint, slug: AgentSlug): Promise<boolean> {
+  try {
+    const res = await fetch(`${RECEIPTS_BASE_URL}/${requestId}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) return false;
+    const json = (await res.json()) as ReceiptResponse;
+    return !!extractValidatorOutput(json, slug);
+  } catch {
+    return false;
+  }
+}
+
 async function waitForFinalization(
   requestId: bigint,
   fromBlock: bigint,
-  timeoutSecs: number
+  timeoutSecs: number,
+  slug?: AgentSlug
 ): Promise<{ status: ResponseStatus; finalizedBlock: bigint }> {
   const deadline = Date.now() + timeoutSecs * 1000;
   let cursor = fromBlock;
@@ -2101,6 +2124,13 @@ async function waitForFinalization(
 
   while (Date.now() < deadline) {
     const head = await publicClient.getBlockNumber();
+
+    // (0) Receipts-API short-circuit — the most reliable signal. If the
+    // result is already published, finalisation happened regardless of
+    // whether our getLogs scan caught the event. Check from the 2nd poll.
+    if (slug && stateCheckCounter >= 1 && (await peekReceiptReady(requestId, slug))) {
+      return { status: "Success", finalizedBlock: head };
+    }
 
     // Every ~5 polls, also probe getRequest() directly. If it reverts with
     // RequestNotFound, the slot was zeroed at finalisation → we missed the
@@ -2141,7 +2171,11 @@ async function waitForFinalization(
               }
             } catch { /* skip */ }
           }
-          // event not found but slot is gone — best-guess Failed at current head
+          // event not found but slot is gone — the receipts API is the
+          // tiebreaker: if it has output, finalisation succeeded; else Failed.
+          if (slug && (await peekReceiptReady(requestId, slug))) {
+            return { status: "Success", finalizedBlock: head };
+          }
           return { status: "Failed", finalizedBlock: head };
         }
       }

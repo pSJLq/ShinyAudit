@@ -304,9 +304,9 @@ export const TOOLS: ToolSpec[] = [
   {
     name: "contract_source",
     agent: "json-fetch", fn: "fetchString", category: "contract",
-    description: "Full Solidity source of a verified contract — can be 10–50 KB. Use sparingly. Empty if not verified.",
+    description: "Verified Solidity source, consensus-bounded to ~9KB (head + security-relevant lines). One on-chain dispatch. Empty if unverified.",
     args: { address: "0x..." },
-    build: ({ address }) => ({ kind: "fetchString", url: GETSOURCE(String(address)), selector: "result.0.SourceCode" })
+    build: ({ address }) => ({ kind: "fetchString", url: SOURCE_AGG(String(address)), selector: "summary" })
   },
   {
     name: "contract_abi",
