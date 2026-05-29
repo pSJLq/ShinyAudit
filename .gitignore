@@ -35,3 +35,11 @@ yarn-error.log*
 .claude/launch.json
 
 .vercel
+
+# scratch / temp probes
+.src.json
+.s.json
+.m.json
+.h.json
+.dbg.json
+*.scratch.json

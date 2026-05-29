@@ -2099,14 +2099,11 @@ function formatToolArgs(args: Record<string, string | number>): string {
  */
 async function peekReceiptReady(requestId: bigint, slug: AgentSlug): Promise<boolean> {
   try {
-    const res = await fetch(`${RECEIPTS_BASE_URL}/${requestId}`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000)
-    });
-    if (!res.ok) return false;
-    const json = (await res.json()) as ReceiptResponse;
-    return !!extractValidatorOutput(json, slug);
+    // Reuse the existing receipts-API reader (function declaration → hoisted).
+    // Returns the decoded output Hex when any validator result is published,
+    // or undefined when nothing's available yet.
+    const out = await fetchValidatorResult(requestId, PLATFORM_ADDRESS, slug);
+    return out !== undefined;
   } catch {
     return false;
   }
