@@ -15,7 +15,14 @@ export const metadata: Metadata = {
   openGraph: {
     title: "{s}hinyAudit · agentic on-chain investigator",
     description: "A swarm. A ledger. A verdict. Built on Somnia.",
-    type: "website"
+    type: "website",
+    images: [{ url: "/logo.svg", width: 512, height: 512, alt: "ShinyAudit" }]
+  },
+  twitter: {
+    card: "summary",
+    title: "{s}hinyAudit · agentic on-chain investigator",
+    description: "A swarm. A ledger. A verdict. Built on Somnia.",
+    images: ["/logo.svg"]
   }
 };
 

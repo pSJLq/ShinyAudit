@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none" role="img" aria-label="ShinyAudit logo">
+  <defs>
+    <!-- soft purple glow for the scan beam -->
+    <radialGradient id="glow" cx="50%" cy="46%" r="55%">
+      <stop offset="0%" stop-color="#5601bf" stop-opacity="0.42"/>
+      <stop offset="55%" stop-color="#5601bf" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#5601bf" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#6e6eed" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#6e6eed" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#6e6eed" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d9d9ff"/>
+    </linearGradient>
+    <clipPath id="round"><rect width="512" height="512" rx="104"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#round)">
+    <!-- base -->
+    <rect width="512" height="512" fill="#070707"/>
+    <!-- inner border -->
+    <rect x="6" y="6" width="500" height="500" rx="98" fill="none" stroke="#1b1b1b" stroke-width="2"/>
+    <!-- central scan glow -->
+    <rect width="512" height="512" fill="url(#glow)"/>
+
+    <!-- pixel-grid corners (matches the brand dot motif) -->
+    <g>
+      <rect x="40"  y="40"  width="10" height="10" fill="#5601bf" opacity="0.7"/>
+      <rect x="62"  y="40"  width="10" height="10" fill="#5601bf" opacity="0.35"/>
+      <rect x="40"  y="62"  width="10" height="10" fill="#6e6eed" opacity="0.35"/>
+      <rect x="462" y="40"  width="10" height="10" fill="#6e6eed" opacity="0.7"/>
+      <rect x="440" y="40"  width="10" height="10" fill="#6e6eed" opacity="0.35"/>
+      <rect x="462" y="62"  width="10" height="10" fill="#5601bf" opacity="0.35"/>
+      <rect x="40"  y="462" width="10" height="10" fill="#6e6eed" opacity="0.7"/>
+      <rect x="62"  y="462" width="10" height="10" fill="#5601bf" opacity="0.35"/>
+      <rect x="462" y="462" width="10" height="10" fill="#5601bf" opacity="0.7"/>
+      <rect x="440" y="462" width="10" height="10" fill="#6e6eed" opacity="0.35"/>
+    </g>
+
+    <!-- horizontal scan beam through the mark -->
+    <rect x="0" y="252" width="512" height="2.5" fill="url(#beam)"/>
+
+    <!-- the {s} brand mark, centered & scaled. Source viewBox 0 0 89.666 68.
+         scale 4.05 → ~363x275; translate to center (512-363)/2=74.5 , (512-275)/2≈118 -->
+    <g transform="translate(74.5,116) scale(4.05)" fill="url(#mark)">
+      <path d="M 0 31.481 L 3.148 31.481 C 4.04 31.481 4.827 31.298 5.509 30.931 C 6.191 30.511 6.742 29.986 7.162 29.356 C 7.634 28.674 7.975 27.94 8.185 27.153 C 8.448 26.313 8.579 25.474 8.579 24.634 L 8.579 11.963 C 8.579 10.022 8.762 8.316 9.13 6.847 C 9.549 5.378 10.231 4.145 11.176 3.148 C 12.12 2.099 13.38 1.312 14.954 0.787 C 16.58 0.262 18.6 0 21.014 0 L 27.389 0 L 27.389 5.116 L 20.699 5.116 C 18.495 5.116 16.921 5.614 15.977 6.611 C 15.085 7.608 14.639 9.418 14.639 12.042 L 14.639 22.903 C 14.639 26.418 14.114 29.015 13.065 30.694 C 12.015 32.321 10.809 33.423 9.444 34 C 10.809 34.63 12.015 35.81 13.065 37.542 C 14.114 39.273 14.639 41.792 14.639 45.097 L 14.639 55.958 C 14.639 58.582 15.111 60.392 16.056 61.389 C 17 62.386 18.574 62.884 20.778 62.884 L 27.389 62.884 L 27.389 68 L 21.014 68 C 18.6 68 16.58 67.738 14.954 67.213 C 13.38 66.688 12.12 65.901 11.176 64.852 C 10.231 63.855 9.549 62.622 9.13 61.153 C 8.762 59.684 8.579 57.978 8.579 56.037 L 8.579 43.366 C 8.579 42.579 8.448 41.792 8.185 41.005 C 7.975 40.165 7.634 39.431 7.162 38.801 C 6.742 38.119 6.191 37.568 5.509 37.148 C 4.88 36.728 4.119 36.519 3.227 36.519 L 0 36.519 L 0 31.481 Z"/>
+      <path d="M 89.666 36.519 L 86.518 36.519 C 85.626 36.519 84.839 36.728 84.156 37.148 C 83.527 37.515 82.976 38.04 82.504 38.722 C 82.084 39.352 81.743 40.086 81.481 40.926 C 81.271 41.713 81.166 42.526 81.166 43.366 L 81.166 56.037 C 81.166 57.978 80.956 59.684 80.536 61.153 C 80.169 62.622 79.487 63.855 78.49 64.852 C 77.545 65.901 76.26 66.688 74.633 67.213 C 73.059 67.738 71.065 68 68.652 68 L 62.277 68 L 62.277 62.884 L 68.967 62.884 C 71.17 62.884 72.718 62.386 73.61 61.389 C 74.555 60.392 75.027 58.582 75.027 55.958 L 75.027 45.097 C 75.027 41.582 75.552 39.011 76.601 37.384 C 77.65 35.705 78.857 34.577 80.221 34 C 78.857 33.37 77.65 32.19 76.601 30.458 C 75.552 28.727 75.027 26.208 75.027 22.903 L 75.027 12.042 C 75.027 9.418 74.555 7.608 73.61 6.611 C 72.666 5.614 71.092 5.116 68.888 5.116 L 62.277 5.116 L 62.277 0 L 68.652 0 C 71.065 0 73.059 0.262 74.633 0.787 C 76.26 1.312 77.545 2.099 78.49 3.148 C 79.487 4.145 80.169 5.378 80.536 6.847 C 80.956 8.316 81.166 10.022 81.166 11.963 L 81.166 24.634 C 81.166 25.421 81.271 26.235 81.481 27.074 C 81.69 27.861 82.005 28.596 82.425 29.278 C 82.897 29.907 83.448 30.432 84.078 30.852 C 84.76 31.272 85.547 31.481 86.439 31.481 L 89.666 31.481 L 89.666 36.519 Z"/>
+    </g>
+
+    <!-- central 's' glyph between the brackets -->
+    <text x="256" y="276" font-family="'Source Code Pro','IBM Plex Mono',ui-monospace,monospace"
+          font-size="150" font-weight="600" letter-spacing="-8"
+          text-anchor="middle" fill="url(#mark)">s</text>
+
+    <!-- audit magnifier — a clean lens + handle tucked in the lower-right,
+         the 'scan/investigate' signature, kept clear of the {s} mark -->
+    <g opacity="0.95">
+      <circle cx="392" cy="392" r="30" fill="none" stroke="#00a35e" stroke-width="9"/>
+      <circle cx="392" cy="392" r="9" fill="#00a35e" opacity="0.55"/>
+      <line x1="414" y1="414" x2="452" y2="452" stroke="#00a35e" stroke-width="11" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
