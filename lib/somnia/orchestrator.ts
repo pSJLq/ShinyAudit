@@ -726,7 +726,7 @@ export async function* runInvestigation(
     // poll for finalization
     let fin: { status: ResponseStatus; finalizedBlock: bigint };
     try {
-      fin = await waitForFinalization(requestId, receipt.blockNumber, 180);
+      fin = await waitForFinalization(requestId, receipt.blockNumber, 180, step.slug);
     } catch (err) {
       yield { type: "error", stepId: step.id, message: (err as Error).message };
       yield { type: "done" };
@@ -1716,7 +1716,7 @@ async function* dispatchPayload(
 
   let fin: { status: ResponseStatus; finalizedBlock: bigint };
   try {
-    fin = await waitForFinalization(requestId, receipt.blockNumber, 180);
+    fin = await waitForFinalization(requestId, receipt.blockNumber, 180, slug);
   } catch (err) {
     yield { type: "error", stepId, message: (err as Error).message };
     return undefined;

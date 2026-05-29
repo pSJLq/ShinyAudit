@@ -28,6 +28,7 @@ const IDENTITY_AGG = (address: string) => `${BASE_URL}/api/identity/${address}`;
 const SNAPSHOT_AGG = (address: string) => `${BASE_URL}/api/snapshot/${address}`;
 const SNAPSHOT_TX  = (hash: string)    => `${BASE_URL}/api/snapshot/tx/${hash}`;
 const SNAPSHOT_TOKEN = (address: string) => `${BASE_URL}/api/snapshot/token/${address}`;
+const SOURCE_AGG = (address: string) => `${BASE_URL}/api/source/${address}`;
 
 // First-tx feeds (asc) for the funding-trail playbook — same Blockscout v1
 // shape but sorted oldest-first instead of newest-first.
