@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   let cursor: Record<string, unknown> | null = null;
 
   for (let pg = 0; pg < pages; pg++) {
-    const qs = cursor
+    const qs: string = cursor
       ? "?" + Object.entries(cursor).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&")
       : "";
     const page: TxPage | null = await fetchJson<TxPage>(`${V2}/transactions${qs}`);
