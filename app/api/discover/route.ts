@@ -34,13 +34,19 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   }
 }
 
+interface SCAddr {
+  hash?: string;
+  name?: string | null;
+  is_scam?: boolean;
+  proxy_type?: string | null;
+}
 interface SCItem {
-  address?: { hash?: string } | string;
+  address?: SCAddr | string;
   address_hash?: string;
   coin_balance?: string;
   compiler_version?: string;
   language?: string;
-  transactions_count?: number;
+  transactions_count?: number | null;
   verified_at?: string;
   certified?: boolean;
 }
@@ -112,15 +118,21 @@ export async function GET(req: NextRequest) {
 
   // ── fresh / trending (recently verified contracts) ──
   const res = await fetchJson<{ items?: SCItem[] }>(`${V2}/smart-contracts?filter=solidity`);
-  let list = (res?.items || []).map((it) => ({
-    address: addrOf(it),
-    compiler: it.compiler_version || "",
-    language: it.language || "",
-    txs: Number(it.transactions_count || 0),
-    verified_at: it.verified_at || "",
-    age_days: daysAgo(it.verified_at),
-    certified: !!it.certified
-  }));
+  let list = (res?.items || []).map((it) => {
+    const a = (typeof it.address === "object" ? it.address : null) as SCAddr | null;
+    const balWei = it.coin_balance ? Number(it.coin_balance) : 0;
+    return {
+      address: addrOf(it),
+      name: a?.name || null,                 // ← the real "what is this" signal
+      compiler: it.compiler_version || "",
+      language: it.language || "",
+      balance_stt: balWei / 1e18,
+      is_scam: !!a?.is_scam,
+      verified_at: it.verified_at || "",
+      age_days: daysAgo(it.verified_at),
+      certified: !!it.certified
+    };
+  });
 
   // filter to the last N days when verified_at is present
   const withAge = list.filter((x) => x.age_days != null);
@@ -129,18 +141,28 @@ export async function GET(req: NextRequest) {
   }
 
   if (kind === "trending") {
-    // ranked by on-chain traction (tx count) among the fresh set
-    list.sort((a, b) => b.txs - a.txs);
+    // Somnia's verified-contracts feed doesn't expose tx counts, so "trending"
+    // ranks by funded-and-named (a balance-holding contract with a known name
+    // is a real, live project) then by recency.
+    list.sort((a, b) =>
+      (b.balance_stt - a.balance_stt) ||
+      ((b.name ? 1 : 0) - (a.name ? 1 : 0)) ||
+      ((Date.parse(b.verified_at || "0") || 0) - (Date.parse(a.verified_at || "0") || 0))
+    );
   } else {
     // fresh: newest verification first
     list.sort((a, b) => (Date.parse(b.verified_at || "0") || 0) - (Date.parse(a.verified_at || "0") || 0));
   }
   const items = list.slice(0, 12);
 
+  // Lead with the contract NAME (the real "what's building" signal) + balance,
+  // not a misleading "0 txs" (the feed simply doesn't report tx counts).
   const summary = items
     .map((i) => {
       const age = i.age_days != null ? `${i.age_days.toFixed(1)}d` : "?";
-      return `${i.address.slice(0, 10)}… (${i.txs} txs, verified ${age} ago)`;
+      const nm = i.name || `${i.address.slice(0, 10)}…`;
+      const bal = i.balance_stt > 0 ? `, ${i.balance_stt.toFixed(2)} STT` : "";
+      return `${nm} (verified ${age} ago${bal})`;
     })
     .join("; ")
     .slice(0, 480);
