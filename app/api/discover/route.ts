@@ -155,14 +155,16 @@ export async function GET(req: NextRequest) {
   }
   const items = list.slice(0, 12);
 
-  // Lead with the contract NAME (the real "what's building" signal) + balance,
-  // not a misleading "0 txs" (the feed simply doesn't report tx counts).
+  // Include BOTH the name (the "what's building" signal) AND the address, so
+  // the agent can follow up on the exact contract. Dropping the address here
+  // previously left the agent unable to act on discovered projects.
+  // Format: "Name 0xABCD… (0.7d, 0.27 STT)".
   const summary = items
     .map((i) => {
       const age = i.age_days != null ? `${i.age_days.toFixed(1)}d` : "?";
-      const nm = i.name || `${i.address.slice(0, 10)}…`;
+      const nm = i.name ? `${i.name} ` : "";
       const bal = i.balance_stt > 0 ? `, ${i.balance_stt.toFixed(2)} STT` : "";
-      return `${nm} (verified ${age} ago${bal})`;
+      return `${nm}${i.address.slice(0, 10)}… (${age}${bal})`;
     })
     .join("; ")
     .slice(0, 480);
