@@ -34,6 +34,7 @@ const CALL_AGG = (to: string, sig: string, args: string) =>
   `${BASE_URL}/api/call?to=${to}&sig=${encodeURIComponent(sig)}${args ? `&args=${encodeURIComponent(args)}` : ""}`;
 const DISCOVER_AGG = (kind: string, q: string, days: string) =>
   `${BASE_URL}/api/discover?kind=${encodeURIComponent(kind)}${q ? `&q=${encodeURIComponent(q)}` : ""}${days ? `&days=${encodeURIComponent(days)}` : ""}`;
+const ACTIVE_AGG = (pages: string) => `${BASE_URL}/api/active${pages ? `?pages=${encodeURIComponent(pages)}` : ""}`;
 // ── 10 capability endpoints ──
 const CLASSIFY_AGG = (a: string) => `${BASE_URL}/api/classify/${a}`;
 const APPROVALS_AGG = (a: string) => `${BASE_URL}/api/approvals/${a}`;
@@ -1387,9 +1388,16 @@ export const TOOLS: ToolSpec[] = [
   {
     name: "discover",
     agent: "json-fetch", fn: "fetchString", category: "stats",
-    description: "DISCOVERY / find-things-by-criterion (not by address). kind='fresh' (recently-verified contracts = who's building, set days=7), kind='trending' (fresh contracts ranked by tx activity), kind='tokens' (top tokens by holders), kind='search' (full-text find by name, needs q). Use for 'top projects this week', 'newest contracts', 'find X protocol'.",
+    description: "DISCOVERY / find-things-by-criterion (not by address). kind='fresh' (recently-verified contracts = who's building, set days=7), kind='trending' (fresh contracts ranked by balance + recency), kind='tokens' (top tokens by holders), kind='search' (full-text find by name, needs q). Use for 'top projects this week', 'newest contracts', 'find X protocol'.",
     args: { kind: "fresh|trending|tokens|search", q: "search query (only for kind=search)", days: "window in days (fresh/trending), default 7" },
     build: ({ kind, q, days }) => ({ kind: "fetchString", url: DISCOVER_AGG(String(kind || "fresh"), String(q || ""), String(days || "")), selector: "summary" })
+  },
+  {
+    name: "active",
+    agent: "json-fetch", fn: "fetchString", category: "stats",
+    description: "MOST ACTIVE contracts right now — tallies the live transaction feed and ranks destination contracts by how many recent txs hit them. THE tool for 'top contracts by transactions', 'what's busiest', 'most used contracts'. Returns a ranked list with names + a sample-window note (it samples recent txs, not an exact calendar window).",
+    args: { pages: "how many tx-feed pages to sample, 1-8 (default 4)" },
+    build: ({ pages }) => ({ kind: "fetchString", url: ACTIVE_AGG(String(pages || "")), selector: "summary" })
   },
   {
     name: "classify",
