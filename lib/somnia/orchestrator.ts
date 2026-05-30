@@ -1122,7 +1122,14 @@ export async function* runAgentLoop(
 
   const sys = renderPlannerSystem(prompt, target, intent);
   const history: Array<{ role: "system" | "user" | "tool" | "planner"; key: string; content: string }> = [
-    { role: "user", key: "user.prompt", content: `Target: ${target}\nQuestion: ${prompt}` }
+    {
+      role: "user",
+      key: "user.prompt",
+      content:
+        /^0x[a-fA-F0-9]{40}$/.test(target)
+          ? `Target: ${target}\nQuestion: ${prompt}`
+          : `Target: none (general/discovery question — use discover/resolve to find subjects)\nQuestion: ${prompt}`
+    }
   ];
 
   const citations: Citation[] = [];

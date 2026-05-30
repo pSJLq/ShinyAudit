@@ -8,7 +8,10 @@ export const maxDuration = 300; // Vercel Hobby plan cap (15 min only on Pro+)
 
 const Body = z.object({
   prompt: z.string().min(3).max(2000),
-  target: z.string().min(2).max(128),
+  // target is OPTIONAL — discovery / general questions ("which projects are
+  // building this week?", "what's trending?") have no address. Empty/missing
+  // normalizes to "—" and the orchestrator routes to discovery/free flows.
+  target: z.string().max(128).optional().default("—"),
   user: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "user must be a 0x-prefixed address")
 });
 
