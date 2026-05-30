@@ -35,6 +35,17 @@ const CALL_AGG = (to: string, sig: string, args: string) =>
 const DISCOVER_AGG = (kind: string, q: string, days: string) =>
   `${BASE_URL}/api/discover?kind=${encodeURIComponent(kind)}${q ? `&q=${encodeURIComponent(q)}` : ""}${days ? `&days=${encodeURIComponent(days)}` : ""}`;
 const ACTIVE_AGG = (pages: string) => `${BASE_URL}/api/active${pages ? `?pages=${encodeURIComponent(pages)}` : ""}`;
+// Universal data primitives — the agent constructs the request itself.
+const EXPLORER_PATH = (path: string) => {
+  const clean = String(path).replace(/^\/+/, "");          // strip leading slash
+  // allow either "addresses/0x.." (we prepend v2) or a full "api/v2/..." path
+  return clean.startsWith("api/") ? `${EXPLORER_API.replace(/\/api$/, "")}/${clean}` : `${EXPLORER_V2_BASE}/${clean}`;
+};
+const WEB_URL = (url: string) => {
+  let u = String(url).trim();
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;        // default to https
+  return u;
+};
 // ── 10 capability endpoints ──
 const CLASSIFY_AGG = (a: string) => `${BASE_URL}/api/classify/${a}`;
 const APPROVALS_AGG = (a: string) => `${BASE_URL}/api/approvals/${a}`;
@@ -1398,6 +1409,28 @@ export const TOOLS: ToolSpec[] = [
     description: "MOST ACTIVE contracts right now — tallies the live transaction feed and ranks destination contracts by how many recent txs hit them. THE tool for 'top contracts by transactions', 'what's busiest', 'most used contracts'. Returns a ranked list with names + a sample-window note (it samples recent txs, not an exact calendar window).",
     args: { pages: "how many tx-feed pages to sample, 1-8 (default 4)" },
     build: ({ pages }) => ({ kind: "fetchString", url: ACTIVE_AGG(String(pages || "")), selector: "summary" })
+  },
+  {
+    name: "explorer",
+    agent: "json-fetch", fn: "fetchString", category: "stats",
+    description:
+      "UNIVERSAL EXPLORER ACCESS — the skeleton key for ANY on-chain data question. Fetches ANY Blockscout v2 endpoint and extracts a value by dot-path selector. Use when no named tool fits. PATHS (Somnia Blockscout v2): " +
+      "addresses/{a} · addresses/{a}/transactions · addresses/{a}/token-transfers · addresses/{a}/internal-transactions · addresses/{a}/logs · addresses/{a}/token-balances · addresses/{a}/coin-balance-history-by-day · addresses/{a}/withdrawals · " +
+      "tokens/{a} · tokens/{a}/holders · tokens/{a}/transfers · tokens/{a}/counters · tokens?type=ERC-20 · " +
+      "transactions/{hash} · transactions/{hash}/logs · transactions/{hash}/token-transfers · transactions · main-page/transactions · " +
+      "blocks/{n} · blocks · stats · stats/charts/transactions · search?q={query}. " +
+      "SELECTOR is a dot-path into the JSON, e.g. 'items.0.hash', 'coin_balance', 'total_supply', 'items.2.to.hash', 'holders_count'. " +
+      "Examples: explorer('stats','total_transactions'); explorer('tokens/0xABC/holders','items.0.value'); explorer('addresses/0xABC/withdrawals','items.0.amount').",
+    args: { path: "Blockscout v2 path, e.g. addresses/0x..  or  stats", selector: "dot-path into the JSON, e.g. items.0.hash" },
+    build: ({ path, selector }) => ({ kind: "fetchString", url: EXPLORER_PATH(String(path || "")), selector: String(selector || "") })
+  },
+  {
+    name: "web",
+    agent: "json-fetch", fn: "fetchString", category: "web",
+    description:
+      "UNIVERSAL WEB FETCH — GET any public JSON API and extract a value by dot-path selector. For OFF-CHAIN context the explorer can't give: token prices (e.g. CoinGecko), protocol docs/registries, GitHub repo metadata, gas oracles, any public REST API. url may omit https://. selector is a dot-path into the response JSON. Example: web('api.coingecko.com/api/v3/simple/price?ids=somnia&vs_currencies=usd','somnia.usd').",
+    args: { url: "full https URL of a public JSON API", selector: "dot-path into the response JSON" },
+    build: ({ url, selector }) => ({ kind: "fetchString", url: WEB_URL(String(url || "")), selector: String(selector || "") })
   },
   {
     name: "classify",
